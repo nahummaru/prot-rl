@@ -1,6 +1,6 @@
 
 # DPO_pLM
-
+You can see more information about DPO in this our preprint: 
 ## Installation
 
 To set up the environment, install the required dependencies using the `requirements.txt` file:
