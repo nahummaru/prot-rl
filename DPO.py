@@ -97,7 +97,7 @@ def generate_dataset(iteration_num, ec_label, mode='standard'):
         # Populate data dictionary
         data["sequence"].append(format_sequence(sequence, ec_label))
         data["seq_name"].append(name)
-        data["weight"].append(length_reward)
+        data["weight"].append(- length_reward) # Minus as DPO maximise for low weights
 
     # Convert data dictionary to a Hugging Face Dataset
     hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
