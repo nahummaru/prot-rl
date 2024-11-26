@@ -39,35 +39,7 @@ device_name = "cuda" if torch.cuda.is_available() else "cpu"
 device = torch.device(device_name)
 
 
-class LayerNormNet(nn.Module):
-    '''
-    Class from CLEAN https://github.com/tttianhao/CLEAN
-    Tianhao Yu et al., Enzyme function prediction using contrastive 
-    learning.Science379,1358-1363(2023).DOI:10.1126/science.adf2465
-    '''
-    def __init__(self, hidden_dim, out_dim, device, dtype, drop_out=0.1):
-        super(LayerNormNet, self).__init__()
-        self.hidden_dim1 = hidden_dim
-        self.out_dim = out_dim
-        self.drop_out = drop_out
-        self.device = device
-        self.dtype = dtype
 
-        self.fc1 = nn.Linear(1280, hidden_dim, dtype=dtype, device=device)
-        self.ln1 = nn.LayerNorm(hidden_dim, dtype=dtype, device=device)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim,
-                             dtype=dtype, device=device)
-        self.ln2 = nn.LayerNorm(hidden_dim, dtype=dtype, device=device)
-        self.fc3 = nn.Linear(hidden_dim, out_dim, dtype=dtype, device=device)
-        self.dropout = nn.Dropout(p=drop_out)
-
-    def forward(self, x):
-        x = self.dropout(self.ln1(self.fc1(x)))
-        x = torch.relu(x)
-        x = self.dropout(self.ln2(self.fc2(x)))
-        x = torch.relu(x)
-        x = self.fc3(x)
-        return x
  
 
 def generate_dataset(iteration_num, ec_label):
@@ -86,52 +58,29 @@ def generate_dataset(iteration_num, ec_label):
      with open(f"{ec_label}_TM_iteration{iteration_num-1}", "r") as f:
         alpha_TM_score = f.readlines()
         
-     
-     clean_prediction = CLEAN_pred(iteration_num, ec_label)
-     
+          
      sequences_rep = dict()
      
      for line in rep_seq:
             if ">" in line:
                 name = line.split("\t")[0].replace(">", "").replace("\n", "")
-                emb_identifier = line.replace(">", "").replace("\n", "")
             else:
                 aa = line.strip()
                 sequences_rep[name] = {
                               "sequence" : aa,
-                              "emb_identifier" : emb_identifier
                                       }
      
-     # Build clean model for inference                                 
-     model_clean = build_clean_model()
-     
-     for entry in alpha_TM_score:
-            name = entry.split("\t")[0]
-            TM = entry.split("\t")[2]
-            TM_norm_que = entry.split("\t")[4]
-            
-            try: 
-                clean_pred = clean_prediction[name]
-                print(f'reward of seq {name} from clean: {clean_pred}')
-            except:
-                clean_pred = 0
-                print(f'reward of seq {name} from clean: {clean_pred}-- ERROR')
-            algn = int(entry.split("\t")[5])
+
+     for weight in weights:
             sequence = sequences_rep[str(name)]['sequence']
             lenght_rew = math.exp(-((((len(sequence)/237)-1)**2)/(0.5**2))) # Gaussian center on 1. The closer the ratio between len and aligment is, the higher is the reward
-            emb_identifier = sequences_rep[str(name)]['emb_identifier']
-            
-            seq_emb = torch.load(f"/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/data/esm_data/{emb_identifier}.pt", weights_only=True)
-            seq_emb = model_clean(seq_emb['mean_representations'][33].to(device))
-            
-            reference_emb = map_emb_center(ec_label)
          
             # Save in a dataset
             data["sequence"].append(formatting_sequence(sequence, ec_label))
             data["seq_name"].append(name)
             data["TM"].append(float(TM))
             data["TM_norm_que"].append(float(TM_norm_que))
-            data["weight"].append((float(cosine_similarity(seq_emb, reference_emb)))*(lenght_rew))
+            data["weight"].append(weight)
      
      hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
      shuffled_dataset = hf_dataset.shuffle(seed=seed)
@@ -151,79 +100,6 @@ def generate_dataset(iteration_num, ec_label):
      del model_clean
      return final_dataset
      
-def CLEAN_pred(iteration_num, ec_label):
-    with open(f'seq_gen_{ec_label}_iteration{iteration_num-1}_maxsep.csv', 'r') as f:
-        data = f.read().split('\n')
-    
-    output = dict()
-
-    for entry in data:
-        if entry.strip():
-            name = entry.split(',')[0]
-            ec_list = entry.split(',')[1:]
-            rewards = []
-            current_dist = []
-            reward = []
-            
-            for ec_entry in ec_list:
-                    count = 0
-                    current_EC = ec_entry.strip().split('/')[0][3:] 
-                    current_dist.append(float(ec_entry.split('/')[1]))  
-                    
-                    for x in range(len(current_EC)):
-                        try:
-                            if target[:x] == current_EC[:x]:
-                                
-                                count += 1
-                                
-                        except:
-                            pass
-                    reward.append(count)
-                    
-            output[name.split('\t')[0]] = (statistics.mean(reward)-1)+(-statistics.mean(current_dist)) # as the distance can be zero, we add to the negative distance, maybe *10?
-            
-    return output
-
-def build_clean_model():
-    '''
-    
-    Load Clean Model and get the embeddings for each sequence to 
-    compute cosine_similarity
-    
-    '''
-    use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda:0" if use_cuda else "cpu")
-    dtype = torch.float32
-    model = LayerNormNet(512, 128, device, dtype)
-    checkpoint = torch.load('/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/data/pretrained/split100.pth', weights_only=True, map_location=device) 
-    model.load_state_dict(checkpoint)
-    model.to(device)
-    model.eval()
-    return model
-
-
-def cosine_similarity(emb, reference_emb):
-    cos = nn.CosineSimilarity(dim=-1, eps=1e-6)
-    similarity = cos(emb, reference_emb)
-    return similarity
-
-def map_emb_center(target):
-    '''
-    Pluck out tensors fo the train set, and calculate the center of the specific ec cluster
-    to calculate cos_similarity  
-    '''
-
-    with open('ec_lables_clean_list.txt', 'r') as f:
-        ec_labels = f.read().split(',')
-
-    train_emb = torch.load("/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/data/pretrained/100.pt", weights_only=True)
-    try:
-        positions = [x for x,y in enumerate(ec_labels) if y == target]
-        reference_emb = train_emb[positions]
-    except:
-        print('EC label not valid') # might raise due to a typo or ec not present in the train set
-    return reference_emb.mean(0)
-
 
 def seed_everything(seed=2003):
     torch.manual_seed(seed)
@@ -365,19 +241,19 @@ if __name__ == "__main__":
     parser.add_argument("--label", type=str)
     parser.add_argument("--mode", type=str)
     parser.add_argument("--beta", type=float)
+    parser.add_argument("--model_dir", type=str)
     
     args = parser.parse_args()
-    iteration_num = args.iteration_num
     ec_label = args.label
     ec_label = ec_label.strip()
     seed_everything(seed)
     
-    if not os.path.exists(f"dataset_iteration{iteration_num}"):
-      dataset = generate_dataset(iteration_num, ec_label)
+    if not os.path.exists(f"dataset_iteration{args.iteration_num}"):
+      dataset = generate_dataset(args.iteration_num, ec_label)
     else:
-      dataset = load_from_disk(f"dataset_iteration{iteration_num}")
+      dataset = load_from_disk(f"dataset_iteration{args.iteration_num}")
     
-    print('Dataset Loaded!!')
+    print('Dataset Loaded!')
     train_set = dataset["train"]
     eval_set = dataset["eval"]
 
@@ -385,5 +261,5 @@ if __name__ == "__main__":
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     eval_loader = DataLoader(eval_set, batch_size=batch_size, shuffle=True)
 
-    main(train_loader,eval_loader, iteration_num)
+    main(train_loader,eval_loader, args.iteration_num)
 
