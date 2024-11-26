@@ -70,13 +70,15 @@ def save_model_and_tokenizer(model, tokenizer, output_dir):
 # ---------------------------
 # Dataset Generation
 # ---------------------------
-def generate_dataset(iteration_num, ec_label):
+def generate_dataset(iteration_num, ec_label, mode='standard'):
     """
-    Generates and preprocesses dataset for training and evaluation.
+    Generates and preprocesses a dataset for training and evaluation.
     """
+    # Initialize data dictionary
     data = {"sequence": [], "seq_name": [], "weight": []}
 
-    with open(f"test.fasta", "r") as f:
+    # Read sequence data from the FASTA file
+    with open("test.fasta", "r") as f:
         rep_seq = f.readlines()
 
     sequences_rep = {}
@@ -86,48 +88,61 @@ def generate_dataset(iteration_num, ec_label):
         else:
             sequences_rep[name] = {"sequence": line.strip()}
 
+    # Generate sequence data and calculate rewards
     for name, info in sequences_rep.items():
         sequence = info["sequence"]
-        length_reward = math.exp(-(((len(sequence) / 237) - 1) ** 2) / (0.5**2))
+        length_reward = math.exp(-(((len(sequence) / 237) - 1) ** 2) / (0.5**2))  # Gaussian reward
 
-        # Save in a dataset
+        # Populate data dictionary
         data["sequence"].append(format_sequence(sequence, ec_label))
         data["seq_name"].append(name)
         data["weight"].append(length_reward)
 
+    # Convert data dictionary to a Hugging Face Dataset
     hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
 
+    # Prepare pairs if mode is 'paired'
     if mode == 'paired':
-        hf_dataset = prepair_pairs(hf_dataset)
-        
-    shuffled_dataset = hf_dataset.shuffle(seed=CONFIG["seed"])
+        hf_dataset = prepare_pairs(hf_dataset)
 
+    # Shuffle and split the dataset
+    shuffled_dataset = hf_dataset.shuffle(seed=CONFIG["seed"])
     train_size = int((1 - CONFIG["split_percent"]) * len(shuffled_dataset))
     train_dataset = shuffled_dataset.select(range(train_size))
     eval_dataset = shuffled_dataset.select(range(train_size, len(shuffled_dataset)))
 
+    # Save the dataset to disk and return
     final_dataset = DatasetDict({"train": train_dataset, "eval": eval_dataset})
     final_dataset.save_to_disk(f"dataset_iteration{iteration_num}")
 
     return final_dataset
 
-def prepair_pairs(hf_dataset):
-        sorted_dataset = hf_dataset.sort("weight", reverse=True)
-        
-        mid_point = len(sorted_dataset) // 2
-        first_half = sorted_dataset.select(range(mid_point))
-        second_half = sorted_dataset.select(range(mid_point, len(sorted_dataset)))
-        
-        pairs = []
-        for pos_example, neg_example in zip(first_half, second_half):
-            pairs.append({
-                'positive_sequence': pos_example['sequence'],
-                'negative_sequence': neg_example['sequence'],
-            })
-            
-        return Dataset.from_list(pairs)
+
+def prepare_pairs(hf_dataset):
+    """
+    Prepare paired data from the paired form of DPO.
+    """
+    # Sort the dataset by weight in descending order
+    sorted_dataset = hf_dataset.sort("weight", reverse=True)
+
+    # Split the dataset into two halves
+    mid_point = len(sorted_dataset) // 2
+    first_half = sorted_dataset.select(range(mid_point))
+    second_half = sorted_dataset.select(range(mid_point, len(sorted_dataset)))
+
+    # Create pairs of positive and negative sequences
+    pairs = []
+    for pos_example, neg_example in zip(first_half, second_half):
+        pairs.append({
+            "positive_sequence": pos_example["sequence"],
+            "negative_sequence": neg_example["sequence"],
+        })
+
+    return Dataset.from_list(pairs)
+
+
 # ---------------------------
-# Model Functions
+# Loss Functions
 # ---------------------------
 def log_likelihood(sequences, device, model, tokenizer):
     """
@@ -141,7 +156,29 @@ def log_likelihood(sequences, device, model, tokenizer):
         all_loss.append(loss.unsqueeze(0))
     return torch.cat(all_loss)
 
+def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
+    """
+    Calculates the paired DPO loss.
+    """
+    # Extract positive and negative sequences
+    positive_sequence = batch["positive_sequence"]
+    negative_sequence = batch["negative_sequence"]
 
+    # Log probabilities for positive sequences
+    pos_ref_log_probs = log_likelihood(positive_sequence, device, ref_model, tokenizer)
+    pos_policy_log_probs = log_likelihood(positive_sequence, device, model, tokenizer)
+    pos_ratios = beta * (pos_policy_log_probs - pos_ref_log_probs)
+
+    # Log probabilities for negative sequences
+    neg_ref_log_probs = log_likelihood(negative_sequence, device, ref_model, tokenizer)
+    neg_policy_log_probs = log_likelihood(negative_sequence, device, model, tokenizer)
+    neg_ratios = beta * (neg_policy_log_probs - neg_ref_log_probs)
+
+    # Compute the DPO paired loss
+    loss = -F.logsigmoid(pos_ratios - neg_ratios)
+
+    return  torch.mean(loss)
+    
 def dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
     """
     Calculates the Dynamic Policy Optimization (DPO) weighted loss.
@@ -176,8 +213,6 @@ def dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
     return F.cross_entropy(log_ratios, weights)
 
 
-
-
 # ---------------------------
 # Training and Evaluation
 # ---------------------------
@@ -201,7 +236,7 @@ def train(model, ref_model, tokenizer, train_loader, optimizer, device):
             loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
         
         if mode == "paired"
-            loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+            loss = dpo_paired_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
         
         loss.backward()
         optimizer.step()
@@ -263,7 +298,7 @@ def main(train_loader, eval_loader, iteration_num, model_directory):
 
 
 # ---------------------------
-# Entry Point
+#     MAIN
 # ---------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
