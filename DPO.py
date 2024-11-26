@@ -52,7 +52,7 @@ def seed_everything(seed=2003):
 
 def format_sequence(sequence, ec_label):
     """
-    Formats a sequence for model input with special tokens.
+    Formats correctly the sequence as in the ZymCTRL trainset.
     """
     return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
 
@@ -74,13 +74,10 @@ def generate_dataset(iteration_num, ec_label):
     """
     Generates and preprocesses dataset for training and evaluation.
     """
-    data = {"sequence": [], "seq_name": [], "TM": [], "TM_norm_que": [], "weight": []}
+    data = {"sequence": [], "seq_name": [], "weight": []}
 
-    with open(f"seq_gen_{ec_label}_iteration{iteration_num - 1}.fasta", "r") as f:
+    with open(f"test.fasta", "r") as f:
         rep_seq = f.readlines()
-
-    with open(f"{ec_label}_TM_iteration{iteration_num - 1}", "r") as f:
-        alpha_TM_score = f.readlines()
 
     sequences_rep = {}
     for line in rep_seq:
@@ -89,18 +86,20 @@ def generate_dataset(iteration_num, ec_label):
         else:
             sequences_rep[name] = {"sequence": line.strip()}
 
-    for name, details in sequences_rep.items():
-        sequence = details["sequence"]
+    for name, info in sequences_rep.items():
+        sequence = info["sequence"]
         length_reward = math.exp(-(((len(sequence) / 237) - 1) ** 2) / (0.5**2))
 
         # Save in a dataset
         data["sequence"].append(format_sequence(sequence, ec_label))
         data["seq_name"].append(name)
-        data["TM"].append(float(alpha_TM_score[0]))
-        data["TM_norm_que"].append(float(alpha_TM_score[1]))
         data["weight"].append(length_reward)
 
     hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
+
+    if mode == 'paired':
+        hf_dataset = prepair_pairs(hf_dataset)
+        
     shuffled_dataset = hf_dataset.shuffle(seed=CONFIG["seed"])
 
     train_size = int((1 - CONFIG["split_percent"]) * len(shuffled_dataset))
@@ -112,7 +111,21 @@ def generate_dataset(iteration_num, ec_label):
 
     return final_dataset
 
-
+def prepair_pairs(hf_dataset):
+        sorted_dataset = hf_dataset.sort("weight", reverse=True)
+        
+        mid_point = len(sorted_dataset) // 2
+        first_half = sorted_dataset.select(range(mid_point))
+        second_half = sorted_dataset.select(range(mid_point, len(sorted_dataset)))
+        
+        pairs = []
+        for pos_example, neg_example in zip(first_half, second_half):
+            pairs.append({
+                'positive_sequence': pos_example['sequence'],
+                'negative_sequence': neg_example['sequence'],
+            })
+            
+        return Dataset.from_list(pairs)
 # ---------------------------
 # Model Functions
 # ---------------------------
@@ -131,11 +144,38 @@ def log_likelihood(sequences, device, model, tokenizer):
 
 def dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
     """
-    Calculates the weighted loss using Dynamic Policy Optimization (DPO).
+    Calculates the Dynamic Policy Optimization (DPO) weighted loss.
     """
     log_ratios = beta * (policy_log_probs - ref_log_probs) if ref_log_probs is not None else beta * policy_log_probs
     weights = torch.softmax(weights * -1, dim=0)
     return F.cross_entropy(log_ratios, weights)
+
+
+def dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
+    """
+    Calculates the Dynamic Policy Optimization (DPO) ranked loss.
+
+    """
+    # Sort weights and corresponding log probabilities in descending order
+    sorted_indices = torch.argsort(weights.squeeze(), descending=True)
+    policy_log_probs = policy_log_probs[sorted_indices]
+    ref_log_probs = ref_log_probs[sorted_indices] if ref_log_probs is not None else None
+    weights = weights[sorted_indices]
+    print(f"Sorted weights: {weights}")
+
+    # Reset weights to uniform values for processing
+    weights = torch.ones_like(weights)
+
+    # Calculate log ratios
+    if ref_log_probs is None:
+        log_ratios = beta * policy_log_probs
+    else:
+        log_ratios = beta * (policy_log_probs.to(device) - ref_log_probs.to(device))
+
+    # Calculate and return the cross-entropy loss
+    return F.cross_entropy(log_ratios, weights)
+
+
 
 
 # ---------------------------
@@ -153,8 +193,16 @@ def train(model, ref_model, tokenizer, train_loader, optimizer, device):
         ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
         policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
         weights = batch["weight"].to(device)
-
-        loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+        
+        if mode == "weighted"
+            loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+        
+        if mode == "ranked"
+            loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+        
+        if mode == "paired"
+            loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+        
         loss.backward()
         optimizer.step()
 
