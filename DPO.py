@@ -35,6 +35,7 @@ CONFIG = {
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+target_lenght = 260 # Set here your target lenght
 
 # ---------------------------
 # Utility Functions
@@ -91,7 +92,7 @@ def generate_dataset(iteration_num, ec_label, mode='standard'):
     # Generate sequence data and calculate rewards
     for name, info in sequences_rep.items():
         sequence = info["sequence"]
-        length_reward = math.exp(-(((len(sequence) / 237) - 1) ** 2) / (0.5**2))  # Gaussian reward
+        length_reward = math.exp(-(((len(sequence) / target_lenght) - 1) ** 2) / (0.5**2))  # Gaussian reward centered on 1
 
         # Populate data dictionary
         data["sequence"].append(format_sequence(sequence, ec_label))
