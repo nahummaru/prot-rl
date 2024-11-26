@@ -11,13 +11,15 @@ pip install -r requirements.txt
 
 ## Running Experiments
 
-To reproduce our experiments, you can execute the `.sh` files corresponding to each experiment located in the `experiments` folder. For example:
+To reproduce our experiments, you can execute the `.sh` files corresponding to each experiment located in the `Experiments` folder. For example:
 
 ```bash
 bash experiments/experiment_name.sh
 ```
 
 Replace `experiment_name` with the desired experiment script.
+
+Each experiment will produce, fold and calulcate statistics for each considered feature. We additionaly add out script for plotting the different features as plotted in our manuscript.
 
 ## Testing New Features
 
