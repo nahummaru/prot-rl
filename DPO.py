@@ -363,6 +363,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--iteration_num", type=int)
     parser.add_argument("--label", type=str)
+    parser.add_argument("--mode", type=str)
+    parser.add_argument("--beta", type=float)
+    
     args = parser.parse_args()
     iteration_num = args.iteration_num
     ec_label = args.label
