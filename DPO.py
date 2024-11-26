@@ -184,7 +184,10 @@ def dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
     """
     Calculates the Dynamic Policy Optimization (DPO) weighted loss.
     """
-    log_ratios = beta * (policy_log_probs - ref_log_probs) if ref_log_probs is not None else beta * policy_log_probs
+    if ref_log_probs is None:
+        log_ratios = beta * policy_log_probs
+    else:
+        log_ratios = beta * (policy_log_probs.to(device) - ref_log_probs.to(device))
     weights = torch.softmax(weights * -1, dim=0)
     return F.cross_entropy(log_ratios, weights)
 
@@ -230,13 +233,13 @@ def train(model, ref_model, tokenizer, train_loader, optimizer, device):
         policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
         weights = batch["weight"].to(device)
         
-        if mode == "weighted"
+        if mode == "weighted":
             loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
         
-        if mode == "ranked"
+        if mode == "ranked":
             loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
         
-        if mode == "paired"
+        if mode == "paired":
             loss = dpo_paired_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
         
         loss.backward()
