@@ -8,8 +8,25 @@ To set up the environment, install the required dependencies using the `requirem
 ```bash
 pip install -r requirements.txt
 ```
+## Example 
+Here we report a very simple script with the objective is to increase the lenght over the different iterations. In the 'Exeperiments' folder more sophysticated scoring function are considered. 
+If you are interested in testing other features, you can use this template as a starting point for your custom experiments.
 
-## Running Experiments
+First of all you need to set up zymcontrol, using HF repository or the local, specifiying as a flag the directory of the model or the HF name (e.g AI4PD/ZymCTRL). 
+In the folder you execute will be generated the sequences for each iteration
+
+## About DPO_pLM
+
+`DPO_pLM` is the main Python script for our project. It supports the following flags:
+
+- `--beta`: Specify the beta value.
+- '--model_directory': Specify the local model or the HF name (e.g AI4PD/ZymCTRL or /your/path/ZymCTRL)
+- `--mode`: Choose the mode for experiments. Available options:
+  - `paired`
+  - `ranked`
+  - `weighted`
+
+## Experiments Reprudicibility
 
 To reproduce our experiments, you can execute the `.sh` files corresponding to each experiment located in the `Experiments` folder. For example:
 
@@ -21,19 +38,6 @@ Replace `experiment_name` with the desired experiment script.
 
 Each experiment will produce, fold and calulcate statistics for each considered feature. We additionaly add out script for plotting the different features as plotted in our manuscript.
 
-## Testing New Features
-
-If you are interested in testing other features, you can use the provided template as a starting point for your custom experiments.
-
-## About DPO_pLM
-
-`DPO_pLM` is the main Python script for our project. It supports the following flags:
-
-- `--beta`: Specify the beta value.
-- `--mode`: Choose the mode for experiments. Available options:
-  - `paired`
-  - `ranked`
-  - `weighted`
 
 Refer to the documentation or comments in the script for more details on how to configure and run your experiments.
 
