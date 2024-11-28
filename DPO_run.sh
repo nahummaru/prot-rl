@@ -37,7 +37,7 @@ DPO_mode="paired"
 echo RL for the enzyme class $label, with mode $DPO_mode
 
 
-for i in $(seq 11 30);
+for i in $(seq 0 10);
 
 do
 
