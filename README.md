@@ -16,6 +16,8 @@ If you are interested in testing other features, you can use this template as a 
 
 First of all you need to set up zymcontrol, using HF repository or the local, specifiying as a flag the directory of the model or the HF name (e.g AI4PD/ZymCTRL). 
 In the folder you execute will be generated the sequences for each iteration
+Reuslts: [DPO_template_git_paired_len_seq.pdf](https://github.com/user-attachments/files/17950745/DPO_template_git_paired_len_seq.pdf) [DPO_template_git_paired_seqcount.pdf](https://github.com/user-attachments/files/17950744/DPO_template_git_paired_seqcount.pdf)
+
 
 ## About DPO_pLM
 
