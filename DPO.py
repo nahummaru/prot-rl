@@ -25,7 +25,7 @@ CONFIG = {
     "beta": 0.01,
     "seed": 1998,
     "learning_rate": 1e-7,
-    "batch_size": 5,
+    "batch_size": 4,
     "num_epochs": 5,
     "split_percent": 0.2,
     "adam_betas": (0.9, 0.98),
@@ -35,7 +35,7 @@ CONFIG = {
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-target_lenght = 260 # Set here your target lenght
+target_lenght = 600 # Set here your target lenght
 
 # ---------------------------
 # Utility Functions
@@ -71,7 +71,7 @@ def save_model_and_tokenizer(model, tokenizer, output_dir):
 # ---------------------------
 # Dataset Generation
 # ---------------------------
-def generate_dataset(iteration_num, ec_label, mode='standard'):
+def generate_dataset(iteration_num, ec_label, mode='weighted'):
     """
     Generates and preprocesses a dataset for training and evaluation.
     """
@@ -79,7 +79,7 @@ def generate_dataset(iteration_num, ec_label, mode='standard'):
     data = {"sequence": [], "seq_name": [], "weight": []}
 
     # Read sequence data from the FASTA file
-    with open("test.fasta", "r") as f:
+    with open(f"seq_gen_{ec_label}_iteration{iteration_num-1}.fasta", "r") as f:
         rep_seq = f.readlines()
 
     sequences_rep = {}
@@ -97,7 +97,7 @@ def generate_dataset(iteration_num, ec_label, mode='standard'):
         # Populate data dictionary
         data["sequence"].append(format_sequence(sequence, ec_label))
         data["seq_name"].append(name)
-        data["weight"].append(- length_reward) # Minus as DPO maximise for low weights
+        data["weight"].append(-length_reward)
 
     # Convert data dictionary to a Hugging Face Dataset
     hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
@@ -187,7 +187,7 @@ def dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
     if ref_log_probs is None:
         log_ratios = beta * policy_log_probs
     else:
-        log_ratios = beta * (policy_log_probs.to(device) - ref_log_probs.to(device))
+        log_ratios = beta * (policy_log_probs - ref_log_probs)
     weights = torch.softmax(weights * -1, dim=0)
     return F.cross_entropy(log_ratios, weights)
 
@@ -211,7 +211,7 @@ def dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
     if ref_log_probs is None:
         log_ratios = beta * policy_log_probs
     else:
-        log_ratios = beta * (policy_log_probs.to(device) - ref_log_probs.to(device))
+        log_ratios = beta * (policy_log_probs - ref_log_probs)
 
     # Calculate and return the cross-entropy loss
     return F.cross_entropy(log_ratios, weights)
@@ -220,37 +220,41 @@ def dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
 # ---------------------------
 # Training and Evaluation
 # ---------------------------
-def train(model, ref_model, tokenizer, train_loader, optimizer, device):
+def train(model, ref_model, tokenizer, train_loader, optimizer, device, mode):
     """
     Performs training for one epoch.
     """
     model.train()
     total_loss = []
     for batch in train_loader:
-        optimizer.zero_grad()
-        sequences = batch["sequence"]
-        ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
-        policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
-        weights = batch["weight"].to(device)
-        
-        if mode == "weighted":
-            loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
-        
-        if mode == "ranked":
-            loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
-        
+
+        if mode != 'paired':
+            optimizer.zero_grad()
+            sequences = batch["sequence"] 
+            ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
+            policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
+            weights = batch["weight"].to(device)
+            
+            if mode == "weighted":
+                loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+            
+            if mode == "ranked":
+                loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+            
         if mode == "paired":
-            loss = dpo_paired_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+            loss = dpo_paired_loss(batch, model, ref_model, tokenizer, device, CONFIG["beta"])
         
         loss.backward()
         optimizer.step()
 
         total_loss.append(loss.item())
+    
+    torch.cuda.empty_cache()
 
     return sum(total_loss) / len(total_loss)
 
 
-def evaluate(model, ref_model, tokenizer, eval_loader, device):
+def evaluate(model, ref_model, tokenizer, eval_loader, device, mode):
     """
     Evaluates the model on the evaluation set.
     """
@@ -258,13 +262,25 @@ def evaluate(model, ref_model, tokenizer, eval_loader, device):
     total_loss = []
     with torch.no_grad():
         for batch in eval_loader:
-            sequences = batch["sequence"]
-            ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
-            policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
-            weights = batch["weight"].to(device)
-
-            loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
-            total_loss.append(loss.item())
+            if mode != 'paired':
+                optimizer.zero_grad()
+                sequences = batch["sequence"] 
+                ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
+                policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
+                weights = batch["weight"].to(device)
+                
+                if mode == "weighted":
+                    loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+                
+                if mode == "ranked":
+                    loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+                
+        if mode == "paired":
+            loss = dpo_paired_loss(batch, model, ref_model, tokenizer, device, CONFIG["beta"])
+        
+        total_loss.append(loss.item())
+    
+    torch.cuda.empty_cache()
 
     return sum(total_loss) / len(total_loss)
 
@@ -272,7 +288,7 @@ def evaluate(model, ref_model, tokenizer, eval_loader, device):
 # ---------------------------
 # Main Function
 # ---------------------------
-def main(train_loader, eval_loader, iteration_num, model_directory):
+def main(train_loader, eval_loader, iteration_num, model_directory, mode):
     """
     Main training loop for a given iteration.
     """
@@ -281,7 +297,7 @@ def main(train_loader, eval_loader, iteration_num, model_directory):
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
     model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
-    ref_model = AutoModelForCausalLM.from_pretrained("path_to_reference_model").to(device)
+    ref_model = AutoModelForCausalLM.from_pretrained(model_directory).to(device)
 
     optimizer = AdamW(
         model.parameters(),
@@ -292,14 +308,15 @@ def main(train_loader, eval_loader, iteration_num, model_directory):
     )
 
     for epoch in range(CONFIG["num_epochs"]):
-        train_loss = train(model, ref_model, tokenizer, train_loader, optimizer, device)
-        eval_loss = evaluate(model, ref_model, tokenizer, eval_loader, device)
+        train_loss = train(model, ref_model, tokenizer, train_loader, optimizer, device, mode)
+        eval_loss = evaluate(model, ref_model, tokenizer, eval_loader, device, mode)
         print(f"Epoch {epoch + 1}/{CONFIG['num_epochs']}, Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
 
         save_model_and_tokenizer(model, tokenizer, output_dir=f"output_iteration{iteration_num}")
 
-    del model, ref_model
-
+    del model
+    del ref_model
+    torch.cuda.empty_cache()
 
 # ---------------------------
 #     MAIN
@@ -309,12 +326,13 @@ if __name__ == "__main__":
     parser.add_argument("--iteration_num", type=int, required=True)
     parser.add_argument("--label", type=str, required=True)
     parser.add_argument("--model_dir", type=str, required=True)
+    parser.add_argument("--mode", type=str, required=True)
 
     args = parser.parse_args()
     seed_everything(CONFIG["seed"])
 
     if not os.path.exists(f"dataset_iteration{args.iteration_num}"):
-        dataset = generate_dataset(args.iteration_num, args.label.strip())
+        dataset = generate_dataset(args.iteration_num, args.label.strip(), args.mode)
     else:
         dataset = load_from_disk(f"dataset_iteration{args.iteration_num}")
 
@@ -322,4 +340,4 @@ if __name__ == "__main__":
     train_loader = DataLoader(dataset["train"], batch_size=CONFIG["batch_size"], shuffle=True)
     eval_loader = DataLoader(dataset["eval"], batch_size=CONFIG["batch_size"], shuffle=False)
 
-    main(train_loader, eval_loader, args.iteration_num, args.model_dir)
+    main(train_loader, eval_loader, args.iteration_num, args.model_dir, args.mode)
