@@ -1,7 +1,7 @@
-![image](https://github.com/user-attachments/assets/b3b0390b-d768-4b3f-97d1-5ad4c24a436d)![image](https://github.com/user-attachments/assets/31a95260-fd0b-4bf5-ac29-55dddc28491b)
-
-
+![Git_front](https://github.com/user-attachments/assets/43fb4f1c-471f-4178-a1e5-e323ef36f533)
 # DPO_pLM
+
+
 You can see more information about DPO in our preprint: 
 ## Installation
 
