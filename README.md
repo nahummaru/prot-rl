@@ -11,12 +11,12 @@ To set up the environment, install the required dependencies using the `requirem
 pip install -r requirements.txt
 ```
 ## Example 
-Here we report a very simple script with the objective is to increase the lenght over the different iterations. In the 'Exeperiments' folder more sophysticated scoring function are considered. 
+Here we report a very simple script with the objective of increasing the lenght over the different iterations. In the 'Experiments' folder more complex scoring function are considered. 
 If you are interested in testing other features, you can use this template as a starting point for your custom experiments.
 
-First of all you need to set up zymcontrol, using HF repository or the local, specifiying as a flag the directory of the model or the HF name (e.g AI4PD/ZymCTRL). 
+First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case we download the HF repository locally or use it directly from the repo, specifiying as a flag the directory of the model or the HF name (e.g AI4PD/ZymCTRL). 
 In the folder you execute will be generated the sequences for each iteration
-Reuslts: ![image](https://github.com/user-attachments/assets/b408b256-0697-45b2-a396-2312f87f1ed8)
+Results: ![image](https://github.com/user-attachments/assets/b408b256-0697-45b2-a396-2312f87f1ed8)
 
 
 
@@ -31,7 +31,7 @@ Reuslts: ![image](https://github.com/user-attachments/assets/b408b256-0697-45b2-
   - `ranked`
   - `weighted`
 
-## Experiments Reprudicibility
+## Experiments Reproducibility
 
 To reproduce our experiments, you can execute the `.sh` files corresponding to each experiment located in the `Experiments` folder. For example:
 
@@ -41,7 +41,7 @@ bash experiments/experiment_name.sh
 
 Replace `experiment_name` with the desired experiment script.
 
-Each experiment will produce, fold and calulcate statistics for each considered feature. We additionaly add out script for plotting the different features as plotted in our manuscript.
+Each experiment will produce, fold and calculate statistics for each considered feature. We additionaly add our script for plotting the different features as presented in our manuscript.
 
 
 Refer to the documentation or comments in the script for more details on how to configure and run your experiments.
