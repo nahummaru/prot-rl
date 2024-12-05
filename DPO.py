@@ -180,41 +180,39 @@ def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
 
     return  torch.mean(loss)
     
-def dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
+def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     """
-    Calculates the Dynamic Policy Optimization (DPO) weighted loss.
+    Calculates the Dynamic Policy Optimization (DPO) weighted loss. 
+    Function kindly provided by Widatalla et.al 2024 "Aligning protein 
+    generative models with experimental fitness via Direct Preference Optimization"
     """
-    if ref_log_probs is None:
-        log_ratios = beta * policy_log_probs
-    else:
-        log_ratios = beta * (policy_log_probs - ref_log_probs)
+    pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood) if pi_ref_loglikelihood is None else beta * pi_log_likelihood
+    
     weights = torch.softmax(weights * -1, dim=0)
-    return F.cross_entropy(log_ratios, weights)
+    loss = F.cross_entropy(pi_ratio, weights)
+    
+    return loss
 
 
-def dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, beta=0.1):
+def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     """
     Calculates the Dynamic Policy Optimization (DPO) ranked loss.
 
     """
     # Sort weights and corresponding log probabilities in descending order
     sorted_indices = torch.argsort(weights.squeeze(), descending=True)
-    policy_log_probs = policy_log_probs[sorted_indices]
-    ref_log_probs = ref_log_probs[sorted_indices] if ref_log_probs is not None else None
+    pi_log_likelihood = pi_log_likelihood[sorted_indices]
+    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices] if ref_log_probs is not None else None
     weights = weights[sorted_indices]
     print(f"Sorted weights: {weights}")
 
     # Reset weights to uniform values for processing
     weights = torch.ones_like(weights)
 
-    # Calculate log ratios
-    if ref_log_probs is None:
-        log_ratios = beta * policy_log_probs
-    else:
-        log_ratios = beta * (policy_log_probs - ref_log_probs)
-
-    # Calculate and return the cross-entropy loss
-    return F.cross_entropy(log_ratios, weights)
+    pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood) if pi_ref_loglikelihood is None else beta * pi_log_likelihood
+   
+    loss = F.cross_entropy(pi_ratio, weights)
+    return loss
 
 
 # ---------------------------
