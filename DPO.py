@@ -147,15 +147,21 @@ def prepare_pairs(hf_dataset):
 # ---------------------------
 def log_likelihood(sequences, device, model, tokenizer):
     """
-    Calculates log likelihood for a batch of sequences.
+    Computes the log likelihood per sequence
     """
-    all_loss = []
+    log_likelihood = []  # List to store loss for each sequence
+    
     for sequence in sequences:
-        inputs = tokenizer.encode(sequence, return_tensors="pt").to(device)
-        outputs = model(inputs, labels=inputs)
-        loss, _ = outputs[:2]
-        all_loss.append(loss.unsqueeze(0))
-    return torch.cat(all_loss)
+        
+        encodings = tokenizer(sequence, return_tensors='pt').to(device)
+        outputs = model(**encodings)
+        logits = outputs.logits  
+        log_probs = F.log_softmax(logits, dim=-1)  
+        input_ids = encodings.input_ids  
+        token_log_probs = log_probs.gather(dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)  
+        log_likelihood.append(token_log_probs.mean(dim=-1)) 
+        
+    return torch.cat(log_likelihood)
 
 def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
     """
