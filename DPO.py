@@ -146,22 +146,18 @@ def prepare_pairs(hf_dataset):
 # Loss Functions
 # ---------------------------
 def log_likelihood(sequences, device, model, tokenizer):
-    """
-    Computes the log likelihood per sequence
-    """
-    log_likelihood = []  # List to store loss for each sequence
     
+    all_neg_log_likelihood = []  # List to store loss for each sequence
+
     for sequence in sequences:
+        inputs = tokenizer.encode(sequence, return_tensors='pt').to(device)
+        outputs = model(inputs, labels=inputs)
+        neg_log_likelihood, logits = outputs[:2]
+        all_neg_log_likelihood.append(neg_log_likelihood.unsqueeze(0))
         
-        encodings = tokenizer(sequence, return_tensors='pt').to(device)
-        outputs = model(**encodings)
-        logits = outputs.logits  
-        log_probs = F.log_softmax(logits, dim=-1)  
-        input_ids = encodings.input_ids  
-        token_log_probs = log_probs.gather(dim=-1, index=input_ids.unsqueeze(-1)).squeeze(-1)  
-        log_likelihood.append(token_log_probs.mean(dim=-1)) 
-        
-    return torch.cat(log_likelihood)
+    all_neg_log_likelihood = torch.cat(all_neg_log_likelihood)
+    
+    return all_neg_log_likelihood
 
 def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
     """
