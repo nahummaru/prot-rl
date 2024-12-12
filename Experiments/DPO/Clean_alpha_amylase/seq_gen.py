@@ -106,7 +106,7 @@ if __name__=='__main__':
         with open(output_filename, "w") as fn:
             fn.write(fasta_content)
         
-        fn = open(f"/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/data/inputs/seq_gen_{label}_iteration{iteration_num}.fasta", "w")
+        fn = open(f"./CLEAN/app/data/inputs/seq_gen_{label}_iteration{iteration_num}.fasta", "w")
         fn.write(str(fasta_content))
         fn.close()
     
