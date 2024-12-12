@@ -184,12 +184,15 @@ def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
     
 def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     """
-    Calculates the Dynamic Policy Optimization (DPO) weighted loss. 
+    Calculates DPO weighted loss. 
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
     generative models with experimental fitness via Direct Preference Optimization"
     """
-    pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood) if pi_ref_loglikelihood is None else beta * pi_log_likelihood
-    
+    if pi_ref_loglikelihood is None:
+        pi_ratio = beta * pi_log_likelihood
+    else:
+        beta * (pi_log_likelihood - pi_ref_loglikelihood)
+        
     weights = torch.softmax(weights * -1, dim=0)
     loss = F.cross_entropy(pi_ratio, weights)
     
@@ -199,6 +202,7 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
 def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     """
     Calculates the Dynamic Policy Optimization (DPO) ranked loss.
+    In this case the ranking is on the batch dimension.
 
     """
     # Sort weights and corresponding log probabilities in descending order
