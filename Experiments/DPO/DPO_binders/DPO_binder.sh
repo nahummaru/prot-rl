@@ -35,7 +35,7 @@ label="1.3.3.18"
 
 echo RL for the enzyme class $label
 
-for i in $(seq 17 300);
+for i in $(seq  30);
 do
     
     echo Starting iteration $i
