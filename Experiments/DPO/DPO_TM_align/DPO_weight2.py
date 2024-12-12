@@ -218,7 +218,7 @@ def main(train_loader,eval_loader, iteration_num):
   
   if int(iteration_num) == 1:
 
-    model_name = "/home/woody/b114cb/b114cb23/ZymCTRL"
+    model_name = "AI4PD/ZymCTRL"
     
   else:
     model_name = f"output_iteration{iteration_num-1}"
@@ -227,7 +227,7 @@ def main(train_loader,eval_loader, iteration_num):
 
   tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
   model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
-  ref_model = AutoModelForCausalLM.from_pretrained('/home/woody/b114cb/b114cb23/ZymCTRL').to(device)
+  ref_model = AutoModelForCausalLM.from_pretrained('AI4PD/ZymCTRL').to(device)
   optimizer = optim.AdamW(model.parameters(), lr=learning_rate, betas=(beta1, beta2), eps=epsilon, weight_decay=adam_decay)
 
 
