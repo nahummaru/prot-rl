@@ -6,7 +6,7 @@ import transformers
 from transformers.testing_utils import CaptureLogger
 
 ## DEFINE THESE VARIABLES
-tokenizer = AutoTokenizer.from_pretrained('/home/woody/b114cb/b114cb23/ZymCTRL')
+tokenizer = AutoTokenizer.from_pretrained('./ZymCTRL')
 ec_label = '1.3.3.18' # CHANGE TO YOUR LABEL
 validation_split_percentage = 10 # change if you want
 sequence_file = 'EGF_rep.fasta'
