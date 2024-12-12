@@ -9,7 +9,7 @@ This is the official repository for the paper [*Guiding Generative Protein Langu
 `DPO_pLM` is the main Python script for our project. It supports the following flags:
 
 - `--beta`: Specify the beta value.
-- '`--model_directory`': Specify the local model or the HF name (e.g AI4PD/ZymCTRL or /your/path/ZymCTRL)
+- `--model_directory`: Specify the local model or the HF name (e.g AI4PD/ZymCTRL or /your/path/ZymCTRL)
 - `--mode`: Choose the mode for experiments. Available options:
   - `paired`: the loss function will take in an ordered pair of sequences responses with different rewards and train the model to give preference to the sequence with better reward score. 
   - `ranked`: the loss function will take in an ordered set of sequences responses by their reward score and train the model to give preference to the sequences in the ranking order.
@@ -60,6 +60,6 @@ Feel free to contribute or raise issues if you encounter any problems! We are wo
 
 ## References
 - ESM1v: "Language models enable zero-shot prediction of the effects of mutations on protein function" Joshua Meier, Roshan Rao, Robert Verkuil, Jason Liu, Tom Sercu, Alexander Rives; doi: https://doi.org/10.1101/2021.07.09.450648. Computed using https://github.com/seanrjohnson/protein_gibbs_sampler/
-- ProteinMPNN: J. Dauparas et al., "Robust deep learning–based protein sequence design using ProteinMPNN".Science378,49-56(2022).DOI:10.1126/science.add2187
+- ProteinMPNN: "Robust deep learning–based protein sequence design using ProteinMPNN", J. Dauparas et al. Science378,49-56(2022).DOI:10.1126/science.add2187
 - CLEAN: "Enzyme function prediction using contrastive learning". Science379,1358-1363(2023). DOI:10.1126/science.adf2465, GitHub: "https://github.com/tttianhao/CLEAN?tab=readme-ov-file"
 
