@@ -35,33 +35,31 @@ CONFIG = {
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-target_lenght = 600 # Set here your target lenght
+target_length = 600 # Set here your target length you want to optimize for 
 
 # ---------------------------
 # Utility Functions
 # ---------------------------
 def seed_everything(seed=2003):
-    """
+    '''
     Sets random seed for reproducibility across libraries.
-    """
+    '''
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
-
 def format_sequence(sequence, ec_label):
-    """
+    '''
     Formats correctly the sequence as in the ZymCTRL trainset.
-    """
+    '''
     return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
 
-
 def save_model_and_tokenizer(model, tokenizer, output_dir):
-    """
+    '''
     Saves the model and tokenizer to a specified directory.
-    """
+    '''
     os.makedirs(output_dir, exist_ok=True)
     model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
@@ -72,9 +70,11 @@ def save_model_and_tokenizer(model, tokenizer, output_dir):
 # Dataset Generation
 # ---------------------------
 def generate_dataset(iteration_num, ec_label, mode='weighted'):
-    """
-    Generates and preprocesses a dataset for training and evaluation.
-    """
+    '''
+    Generates and preprocesses a dataset for training and evaluation. 
+    Also, scores the functions based on the scoring function defined 
+    and appends the weight to the data.
+    '''
     # Initialize data dictionary
     data = {"sequence": [], "seq_name": [], "weight": []}
 
@@ -92,7 +92,8 @@ def generate_dataset(iteration_num, ec_label, mode='weighted'):
     # Generate sequence data and calculate rewards
     for name, info in sequences_rep.items():
         sequence = info["sequence"]
-        length_reward = math.exp(-(((len(sequence) / target_lenght) - 1) ** 2) / (0.5**2))  # Gaussian reward centered on 1
+        # the following function can be modified to use a custom scoring function
+        length_reward = math.exp(-(((len(sequence) / target_length) - 1) ** 2) / (0.5**2))  # Gaussian reward centered on 1
 
         # Populate data dictionary
         data["sequence"].append(format_sequence(sequence, ec_label))
@@ -118,11 +119,10 @@ def generate_dataset(iteration_num, ec_label, mode='weighted'):
 
     return final_dataset
 
-
 def prepare_pairs(hf_dataset):
-    """
-    Prepare paired data from the paired form of DPO.
-    """
+    '''
+    Prepares data for the paired form of DPO.
+    '''
     # Sort the dataset by weight in descending order
     sorted_dataset = hf_dataset.sort("weight", reverse=True)
 
@@ -146,6 +146,9 @@ def prepare_pairs(hf_dataset):
 # Loss Functions
 # ---------------------------
 def log_likelihood(sequences, device, model, tokenizer):
+    '''
+    Calculates the negative log likelihood for all generated sequences.
+    '''
     
     all_neg_log_likelihood = []  # List to store loss for each sequence
 
@@ -160,9 +163,9 @@ def log_likelihood(sequences, device, model, tokenizer):
     return all_neg_log_likelihood
 
 def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
-    """
+    '''
     Calculates the paired DPO loss.
-    """
+    '''
     # Extract positive and negative sequences
     positive_sequence = batch["positive_sequence"]
     negative_sequence = batch["negative_sequence"]
@@ -183,11 +186,11 @@ def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
     return  torch.mean(loss)
     
 def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
-    """
-    Calculates the Dynamic Policy Optimization (DPO) weighted loss. 
+    '''
+    Calculates the Direct Preference Optimization (DPO) weighted loss. 
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
     generative models with experimental fitness via Direct Preference Optimization"
-    """
+    '''
     pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood) if pi_ref_loglikelihood is None else beta * pi_log_likelihood
     
     weights = torch.softmax(weights * -1, dim=0)
@@ -195,12 +198,10 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     
     return loss
 
-
 def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
-    """
-    Calculates the Dynamic Policy Optimization (DPO) ranked loss.
-
-    """
+    '''
+    Calculates the Direct Preference Optimization (DPO) ranked loss.
+    '''
     # Sort weights and corresponding log probabilities in descending order
     sorted_indices = torch.argsort(weights.squeeze(), descending=True)
     pi_log_likelihood = pi_log_likelihood[sorted_indices]
@@ -221,9 +222,9 @@ def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
 # Training and Evaluation
 # ---------------------------
 def train(model, ref_model, tokenizer, train_loader, optimizer, device, mode):
-    """
+    '''
     Performs training for one epoch.
-    """
+    '''
     model.train()
     total_loss = []
     for batch in train_loader:
@@ -253,11 +254,10 @@ def train(model, ref_model, tokenizer, train_loader, optimizer, device, mode):
 
     return sum(total_loss) / len(total_loss)
 
-
 def evaluate(model, ref_model, tokenizer, eval_loader, device, mode):
-    """
+    '''
     Evaluates the model on the evaluation set.
-    """
+    '''
     model.eval()
     total_loss = []
     with torch.no_grad():
@@ -289,12 +289,13 @@ def evaluate(model, ref_model, tokenizer, eval_loader, device, mode):
 # Main Function
 # ---------------------------
 def main(train_loader, eval_loader, iteration_num, model_directory, mode):
-    """
-    Main training loop for a given iteration.
-    """
+    '''
+    Main training loop for a given iteration. Align the model to the new feedback points for new iteration.
+    '''
     model_name = model_directory if iteration_num == 1 else f"output_iteration{iteration_num - 1}"
     print(f"Model {model_name} has been loaded")
 
+    # load tokenizer and both (previous) reference
     tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
     model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
     ref_model = AutoModelForCausalLM.from_pretrained(model_directory).to(device)
@@ -314,6 +315,7 @@ def main(train_loader, eval_loader, iteration_num, model_directory, mode):
 
         save_model_and_tokenizer(model, tokenizer, output_dir=f"output_iteration{iteration_num}")
 
+    # free memory resources 
     del model
     del ref_model
     torch.cuda.empty_cache()
@@ -322,22 +324,32 @@ def main(train_loader, eval_loader, iteration_num, model_directory, mode):
 #     MAIN
 # ---------------------------
 if __name__ == "__main__":
+
+    # parse the script arguments 
     parser = argparse.ArgumentParser()
     parser.add_argument("--iteration_num", type=int, required=True)
-    parser.add_argument("--label", type=str, required=True)
+    parser.add_argument("--ec_label", type=str, required=True)
     parser.add_argument("--model_dir", type=str, required=True)
     parser.add_argument("--mode", type=str, required=True)
-
     args = parser.parse_args()
+    ec_label = args.label.strip()
+    iteration_num = args.iteration_num
+    mode = args.mode
+    model_dir = args.model_dir
+    
+    # establish seed 
     seed_everything(CONFIG["seed"])
 
-    if not os.path.exists(f"dataset_iteration{args.iteration_num}"):
-        dataset = generate_dataset(args.iteration_num, args.label.strip(), args.mode)
+    # create and save dataset or load it from previous checkpoint
+    if not os.path.exists(f"dataset_iteration{iteration_num}"):
+        dataset = generate_dataset(iteration_num, ec_label, mode)
     else:
-        dataset = load_from_disk(f"dataset_iteration{args.iteration_num}")
-
+        dataset = load_from_disk(f"dataset_iteration{iteration_num}")
     print("Dataset Loaded!")
+
+    # create train and eval dataset 
     train_loader = DataLoader(dataset["train"], batch_size=CONFIG["batch_size"], shuffle=True)
     eval_loader = DataLoader(dataset["eval"], batch_size=CONFIG["batch_size"], shuffle=False)
 
-    main(train_loader, eval_loader, args.iteration_num, args.model_dir, args.mode)
+    # execute DPO_pLM with loaded dataset
+    main(train_loader, eval_loader, iteration_num, model_dir, mode)

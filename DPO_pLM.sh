@@ -10,10 +10,14 @@
 #SBATCH --job-name=DPO_template_ranked
 #SBATCH --time=24:00:00
 
+# change this configuration to run on your GPU (80GB) configuration
 #SBATCH --gres=gpu:a100:1
 #SBATCH --partition=a100
 #SBATCH --constraint=a100_80
 
+##################################
+# make bash behave more robustly #
+##################################
 set -e
 set -u
 set -o pipefail
@@ -30,13 +34,13 @@ source .env/bin/activate
 # run command #
 ###############
 
-label="4.2.1.1"
-model_directory="AI4PD/ZymCTRL"
-DPO_mode="paired"
+label="4.2.1.1" # EC label we want to prompt ZymCTRL with 
+model_directory="AI4PD/ZymCTRL" # put the path to your local model or a Huggingface's repository (to be called with transformer's API)
+DPO_mode="paired" # choose between paired, ranked and weighted 
 
-echo RL for the enzyme class $label, with mode $DPO_mode
+echo DPO_pLM for the enzyme class $label, with $DPO_mode mode
 
-
+# establish the number of iterations you want to do with DPO_pLM
 for i in $(seq 0 10);
 
 do
