@@ -281,7 +281,7 @@ def save_model_and_tokenizer(model, tokenizer, output_dir):
 def main(train_loader,eval_loader, iteration_num):
   # Load the model
   
-  model_name = f"output_iteration{iteration_num-1}"
+  model_name = f"output_iteration{iteration_num-1}" # here model 
   
   print(f'Model {model_name} has been loaded')
 
