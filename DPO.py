@@ -188,10 +188,10 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
     generative models with experimental fitness via Direct Preference Optimization"
     """
-    if pi_ref_loglikelihood is None:
+    if ref_log_likelihood is None:
         pi_ratio = beta * pi_log_likelihood
     else:
-        beta * (pi_log_likelihood - pi_ref_loglikelihood)
+        beta * (pi_log_likelihood - ref_log_likelihood)
         
     weights = torch.softmax(weights * -1, dim=0)
     loss = F.cross_entropy(pi_ratio, weights)
@@ -264,21 +264,20 @@ def evaluate(model, ref_model, tokenizer, eval_loader, device, mode):
     """
     model.eval()
     total_loss = []
-    with torch.no_grad():
-        for batch in eval_loader:
-            if mode != 'paired':
-                optimizer.zero_grad()
-                sequences = batch["sequence"] 
-                ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
-                policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
-                weights = batch["weight"].to(device)
-                
-                if mode == "weighted":
-                    loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
-                
-                if mode == "ranked":
-                    loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
-                
+    for batch in eval_loader:
+        if mode != 'paired':
+            optimizer.zero_grad()
+            sequences = batch["sequence"] 
+            ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
+            policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
+            weights = batch["weight"].to(device)
+            
+            if mode == "weighted":
+                loss = dpo_weighted_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+            
+            if mode == "ranked":
+                loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+            
         if mode == "paired":
             loss = dpo_paired_loss(batch, model, ref_model, tokenizer, device, CONFIG["beta"])
         
