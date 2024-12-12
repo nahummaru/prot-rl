@@ -191,10 +191,10 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
     generative models with experimental fitness via Direct Preference Optimization"
     '''
-    if ref_loglikelihood is None:
+    if ref_log_likelihood is None:
         pi_ratio = beta * pi_log_likelihood
     else:
-        beta * (pi_log_likelihood - ref_loglikelihood)
+        beta * (pi_log_likelihood - ref_log_likelihood)
     
     weights = torch.softmax(weights * -1, dim=0)
     loss = F.cross_entropy(pi_ratio, weights)
@@ -335,7 +335,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_dir", type=str, required=True)
     parser.add_argument("--mode", type=str, required=True)
     args = parser.parse_args()
-    ec_label = args.label.strip()
+    ec_label = args.ec_label.strip()
     iteration_num = args.iteration_num
     mode = args.mode
     model_dir = args.model_dir
