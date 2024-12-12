@@ -116,7 +116,7 @@ def generate_dataset(iteration_num, ec_label):
 
 def compute_proteinMPNN_score(iteration_num):
     print('compute MPNN started')
-    directory = f"/home/woody/b114cb/b114cb23/DPO/DPO_Clean/DPO_clean_ProteinMPNN_v2/output_iteration{iteration_num-1}/PDB"
+    directory = f"./output_iteration{iteration_num-1}/PDB"
     outfile = f"metrics_iteration{iteration_num-1}.txt"
     pdb_files = glob(f"{directory}/*.pdb")
     print(f'There are {len(pdb_files)} PDB files.')
@@ -127,7 +127,7 @@ def compute_proteinMPNN_score(iteration_num):
         for i, pdb_file in enumerate(pdb_files):
             command_line_arguments = [
                 "python",
-                "/home/woody/b114cb/b114cb23/ProteinMPNN/protein_mpnn_run.py",
+                "./ProteinMPNN/protein_mpnn_run.py",
                 "--pdb_path", pdb_file,
                 "--pdb_path_chains", "A",
                 "--score_only", "1",
@@ -259,7 +259,7 @@ def main(train_loader,eval_loader, iteration_num):
   
   if int(iteration_num) == 1:
 
-    model_name = '/home/woody/b114cb/b114cb23/ZymCTRL'
+    model_name = 'AI4PD/ZymCTRL'
     
   else:
     model_name = f"output_iteration{iteration_num-1}"
@@ -268,7 +268,7 @@ def main(train_loader,eval_loader, iteration_num):
 
   tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
   model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
-  ref_model = AutoModelForCausalLM.from_pretrained('/home/woody/b114cb/b114cb23/ZymCTRL').to(device)
+  ref_model = AutoModelForCausalLM.from_pretrained('AI4PD/ZymCTRL').to(device)
   optimizer = optim.AdamW(model.parameters(), lr=learning_rate, betas=(beta1, beta2), eps=epsilon, weight_decay=adam_decay)
 
 
