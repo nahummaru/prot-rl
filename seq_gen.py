@@ -87,7 +87,7 @@ if __name__=='__main__':
             for key, value in sequences.items():
                 for index, val in enumerate(value):
                     if all(char in canonical_amino_acids for char in val[0]):
-                      out = out + (f'>{label}_{index}_iteration{iteration_num}\n{seq}') + ('\n')
+                      out = out + (f'>{label}_{index}_iteration{iteration_num}\n{val[0]}') + ('\n')
         
         output_filename = f"seq_gen_{label}_iteration{iteration_num}.fasta"
         print(out)
