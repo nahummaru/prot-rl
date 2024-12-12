@@ -159,7 +159,7 @@ def generate_dataset(iteration_num, ec_label):
             emb_identifier = sequences_rep[str(name)]['emb_identifier']
             plddt = sequences_rep[str(name)]['plddt']
             activity = sequences_rep[str(name)]['activity']
-            seq_emb = torch.load(f"/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/data/esm_data/{emb_identifier}.pt", weights_only=True)
+            seq_emb = torch.load(f"./CLEAN/app/data/esm_data/{emb_identifier}.pt", weights_only=True)
             seq_emb = model_clean(seq_emb['mean_representations'][33].to(device))
             
             reference_emb = map_emb_center(ec_label)
