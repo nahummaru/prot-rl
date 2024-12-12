@@ -56,7 +56,10 @@ Replace `experiment_name` with the desired experiment script path. Each experime
 
 Refer to the documentation for more details on how to configure and run your experiments.
 
-Feel free to contribute or raise issues if you encounter any problems!
+Feel free to contribute or raise issues if you encounter any problems! We are working to make it more accessible and detailed
 
-## Citation
+## References
+- ESM1v was computed using https://github.com/seanrjohnson/protein_gibbs_sampler/
+- ProteinMPNN score from https://github.com/dauparas/ProteinMPNN
+- CLEAN: "Enzyme function prediction using contrastive learning". Science379,1358-1363(2023). DOI:10.1126/science.adf2465, GitHub: "https://github.com/tttianhao/CLEAN?tab=readme-ov-file"
 
