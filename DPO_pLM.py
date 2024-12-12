@@ -186,6 +186,7 @@ def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
     return  torch.mean(loss)
     
 def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
+<<<<<<< HEAD:DPO_pLM.py
     '''
     Calculates the Direct Preference Optimization (DPO) weighted loss. 
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
@@ -196,16 +197,36 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     else:
         beta * (pi_log_likelihood - ref_loglikelihood)
     
+=======
+    """
+    Calculates DPO weighted loss. 
+    Function kindly provided by Widatalla et.al 2024 "Aligning protein 
+    generative models with experimental fitness via Direct Preference Optimization"
+    """
+    if ref_log_likelihood is None:
+        pi_ratio = beta * pi_log_likelihood
+    else:
+        beta * (pi_log_likelihood - ref_log_likelihood)
+        
+>>>>>>> 4dc4bb14ea40e52d463bfc92d7a7442450aa9765:DPO.py
     weights = torch.softmax(weights * -1, dim=0)
     loss = F.cross_entropy(pi_ratio, weights)
     
     return loss
 
 def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
+<<<<<<< HEAD:DPO_pLM.py
     '''
     Calculates the Direct Preference Optimization (DPO) ranked loss.
     In this case the ranking is on the batch dimension.
     '''
+=======
+    """
+    Calculates the Dynamic Policy Optimization (DPO) ranked loss.
+    In this case the ranking is on the batch dimension.
+
+    """
+>>>>>>> 4dc4bb14ea40e52d463bfc92d7a7442450aa9765:DPO.py
     # Sort weights and corresponding log probabilities in descending order
     sorted_indices = torch.argsort(weights.squeeze(), descending=True)
     pi_log_likelihood = pi_log_likelihood[sorted_indices]
@@ -277,8 +298,13 @@ def evaluate(model, ref_model, tokenizer, eval_loader, device, mode):
             
             if mode == "ranked":
                 loss = dpo_ranked_loss(policy_log_probs, ref_log_probs, weights, CONFIG["beta"])
+<<<<<<< HEAD:DPO_pLM.py
                 
         elif mode == "paired":
+=======
+            
+        if mode == "paired":
+>>>>>>> 4dc4bb14ea40e52d463bfc92d7a7442450aa9765:DPO.py
             loss = dpo_paired_loss(batch, model, ref_model, tokenizer, device, CONFIG["beta"])
         
         total_loss.append(loss.item())
