@@ -5,8 +5,8 @@ import os
 
 
 ##### Load the module ESM ######
-tokenizer_esm = AutoTokenizer.from_pretrained("/home/woody/b114cb/b114cb23/esm_fold") # Download tokenizer
-model_esm = EsmForProteinFolding.from_pretrained("/home/woody/b114cb/b114cb23/esm_fold")  # Download model
+tokenizer_esm = AutoTokenizer.from_pretrained("./esm_fold") # Download tokenizer
+model_esm = EsmForProteinFolding.from_pretrained("./esm_fold")  # Download model
 device_name = "cuda" if torch.cuda.is_available() else "cpu"
 device = torch.device(device_name)
 model_esm = model_esm.to(device)
