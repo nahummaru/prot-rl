@@ -24,7 +24,7 @@ set -o pipefail
 ###################
 
 module load python
-source /home/woody/b114cb/b114cb23/.test_env/bin/activate
+source .env/bin/activate
 
 #export http_proxy=http://proxy:80
 #export https_proxy=http://proxy:80
@@ -74,31 +74,31 @@ do
       
     cd -
       
-    cp "/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/results/inputs/seq_gen_${label}_iteration$((i))_maxsep.csv" seq_gen_${label}_iteration$((i))_maxsep.csv
+    cp "./CLEAN/app/results/inputs/seq_gen_${label}_iteration$((i))_maxsep.csv" seq_gen_${label}_iteration$((i))_maxsep.csv
     
     # Determine the esm1v value
-    cd /home/woody/b114cb/b114cb23/protein_gibbs_sampler
+    cd ,/protein_gibbs_sampler
     module load cuda/12.4.1
     source  .gibbs_sampler/bin/activate
-    cd /home/woody/b114cb/b114cb23/protein_gibbs_sampler/src/pgen
-    echo the directory is /home/woody/b114cb/b114cb23/DPO/DPO_Clean/${directory}/seq_gen_${label}_iteration$((i)).fasta
-    python likelihood_esm.py -i /home/woody/b114cb/b114cb23/DPO/DPO_Clean/${directory}/seq_gen_${label}_iteration$((i)).fasta -o /home/woody/b114cb/b114cb23/DPO/DPO_Clean/${directory}/metrics_${label}_iteration$((i)).txt --model esm1v --csv --device gpu --score_name esm1v
+    cd ./protein_gibbs_sampler/src/pgen
+    echo the directory is ./${directory}/seq_gen_${label}_iteration$((i)).fasta
+    python likelihood_esm.py -i ./${directory}/seq_gen_${label}_iteration$((i)).fasta -o ./${directory}/metrics_${label}_iteration$((i)).txt --model esm1v --csv --device gpu --score_name esm1v
     module unload cuda
     source deactivate
-    source /home/woody/b114cb/b114cb23/.test_env/bin/activate
+    source .env/bin/activate
     cd $directory_all
 
     # Calculate TM Score
     echo foldseek started for 11ba
-    export PATH=/home/woody/b114cb/b114cb23/foldseek/bin/:$PATH
+    export PATH=./foldseek/bin/:$PATH
     foldseek easy-search output_iteration$((i))/PDB  '1i6p.pdb' ${label}_TM_iteration$((i)) tm --format-output "query,target,alntmscore,qtmscore,ttmscore,alnlen" --exhaustive-search 1 -e inf --tmscore-threshold 0.0
     
      # Calculate aligment and clusters
     echo Aligments and cluster 
-    export PATH=/home/woody/b114cb/b114cb23/mmseqs/bin/:$PATH
+    export PATH=./mmseqs/bin/:$PATH
     mmseqs easy-cluster seq_gen_${label}_iteration$((i)).fasta clustering/clustResult_0.9_seq_gen_${label}_iteration$((i)) tmp --min-seq-id 0.9
     mmseqs easy-cluster seq_gen_${label}_iteration$((i)).fasta clustering/clustResult_0.5_seq_gen_${label}_iteration$((i)) tmp --min-seq-id 0.5
-    mmseqs easy-search  seq_gen_${label}_iteration$((i)).fasta /home/woody/b114cb/b114cb23/brenda_dataset/database_${label}.fasta alignment/alnResult_seq_gen_${label}_iteration$((i)).m8 tmp    
+    mmseqs easy-search  seq_gen_${label}_iteration$((i)).fasta ./brenda_dataset/database_${label}.fasta alignment/alnResult_seq_gen_${label}_iteration$((i)).m8 tmp    
       
     
     
