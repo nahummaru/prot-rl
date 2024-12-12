@@ -258,7 +258,7 @@ def train(model, ref_model, tokenizer, train_loader, optimizer, device, mode):
 
     return sum(total_loss) / len(total_loss)
 
-def evaluate(model, ref_model, tokenizer, eval_loader, device, mode):
+def evaluate(model, ref_model, tokenizer, eval_loader, optimizer, device, mode):
     '''
     Evaluates the model on the evaluation set.
     '''
@@ -313,7 +313,7 @@ def main(train_loader, eval_loader, iteration_num, model_directory, mode):
 
     for epoch in range(CONFIG["num_epochs"]):
         train_loss = train(model, ref_model, tokenizer, train_loader, optimizer, device, mode)
-        eval_loss = evaluate(model, ref_model, tokenizer, eval_loader, device, mode)
+        eval_loss = evaluate(model, ref_model, tokenizer, eval_loader, optimizer, device, mode)
         print(f"Epoch {epoch + 1}/{CONFIG['num_epochs']}, Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
 
         save_model_and_tokenizer(model, tokenizer, output_dir=f"output_iteration{iteration_num}")
