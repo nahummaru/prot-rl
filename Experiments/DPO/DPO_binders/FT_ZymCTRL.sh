@@ -24,7 +24,7 @@ set -o pipefail
 ###################
 module load python
 
-source /home/woody/b114cb/b114cb23/.test_env/bin/activate
+source .env/bin/activate
 
 ###############
 # run command #
@@ -32,7 +32,7 @@ source /home/woody/b114cb/b114cb23/.test_env/bin/activate
 
 #python dataset_creation.py
 
-#python 5.run_clm-post.py --tokenizer_name /home/woody/b114cb/b114cb23/ZymCTRL --do_train --do_eval --output_dir output_iteration0 --evaluation_strategy steps --eval_steps 10 --logging_steps 5 --save_steps 500 --num_train_epochs 30 --per_device_train_batch_size 1 --per_device_eval_batch_size 1 --cache_dir '.' --save_total_limit 2 --learning_rate  1e-06 --dataloader_drop --model_name_or_path /home/woody/b114cb/b114cb23/ZymCTRL
+python 5.run_clm-post.py --tokenizer_name ./ZymCTRL --do_train --do_eval --output_dir output_iteration0 --evaluation_strategy steps --eval_steps 10 --logging_steps 5 --save_steps 500 --num_train_epochs 30 --per_device_train_batch_size 1 --per_device_eval_batch_size 1 --cache_dir '.' --save_total_limit 2 --learning_rate  1e-06 --dataloader_drop --model_name_or_path ./ZymCTRL
 python seq_gen.py --label '1.3.3.18' --iteration_num 1
 ###############
 # end message #
