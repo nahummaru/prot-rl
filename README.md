@@ -38,8 +38,7 @@ To give an overview of how the different loss functions (or modes) differ, the 3
 
 ![image](https://github.com/user-attachments/assets/b408b256-0697-45b2-a396-2312f87f1ed8)
 
-
-## Experiments Reproducibility
+Note that in this case, the objective is to maximise the weight (sequence lenght), thus the weight must be multiplied by (-1)
 
 To reproduce the experiments of our paper, you can find all the scripts in the `Experiments` folder. Given the size and computational needs of pLMs, each one of the experiments were executed in one H100 GPU, with differing times of execution. All the parameters and external data used in the experiments can be found in this repo. The `.sh` scripts can be executed from the same folder to conduct each experiment, they have been built to work on a SLURM based cluster, given the need of GPU-intensive computing. To reproduce the results run: 
 
