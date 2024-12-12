@@ -234,7 +234,7 @@ def build_clean_model():
     device = torch.device("cuda:0" if use_cuda else "cpu")
     dtype = torch.float32
     model = LayerNormNet(512, 128, device, dtype)
-    checkpoint = torch.load('/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/data/pretrained/split100.pth', weights_only=True, map_location=device) 
+    checkpoint = torch.load('./CLEAN/app/data/pretrained/split100.pth', weights_only=True, map_location=device) 
     model.load_state_dict(checkpoint)
     model.to(device)
     model.eval()
@@ -255,7 +255,7 @@ def map_emb_center(target):
     with open('ec_lables_clean_list.txt', 'r') as f:
         ec_labels = f.read().split(',')
 
-    train_emb = torch.load("/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/data/pretrained/100.pt", weights_only=True)
+    train_emb = torch.load("./CLEAN/app/data/pretrained/100.pt", weights_only=True)
     try:
         positions = [x for x,y in enumerate(ec_labels) if y == target]
         reference_emb = train_emb[positions]
@@ -372,7 +372,7 @@ def main(train_loader,eval_loader, iteration_num):
   
   if int(iteration_num) == 1:
 
-    model_name = "/home/woody/b114cb/b114cb23/ZymCTRL"
+    model_name = "AI4PD/ZymCTRL"
     
   else:
     model_name = f"output_iteration{iteration_num-1}"
@@ -381,7 +381,7 @@ def main(train_loader,eval_loader, iteration_num):
 
   tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
   model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
-  ref_model = AutoModelForCausalLM.from_pretrained('/home/woody/b114cb/b114cb23/ZymCTRL').to(device)
+  ref_model = AutoModelForCausalLM.from_pretrained('AI4PD').to(device)
   optimizer = optim.AdamW(model.parameters(), lr=learning_rate, betas=(beta1, beta2), eps=epsilon, weight_decay=adam_decay)
 
 
