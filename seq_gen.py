@@ -80,7 +80,6 @@ if __name__=='__main__':
     out = str()
     canonical_amino_acids = set("ACDEFGHIKLMNPQRSTVWY")  # Set of canonical amino acids
     
-<<<<<<< HEAD
     # To not saturate GPU memory, we'll generate the sequences in batches of 20, to change the amount modify n_batches or the num_return_sequences in main()
     n_batches = 5 # this will generate 5 batches of 20 sequence: 100 sequences in total (all saved into the same fasta)
     for i in range(n_batches):
@@ -97,21 +96,6 @@ if __name__=='__main__':
         fn.write(out)
 
     # free memory resources 
-=======
-    for label in tqdm(labels):
-        all_sequences = []
-        for i in range(5):
-            sequences = main(label, model, special_tokens, device, tokenizer)
-            for key, value in sequences.items():
-                for index, val in enumerate(value):
-                    if all(char in canonical_amino_acids for char in val[0]):
-                      out = out + (f'>{label}_{index}_iteration{iteration_num}\n{val[0]}') + ('\n')
-        
-        output_filename = f"seq_gen_{label}_iteration{iteration_num}.fasta"
-        print(out)
-        with open(output_filename, "w") as fn:
-            fn.write(out)
->>>>>>> 4dc4bb14ea40e52d463bfc92d7a7442450aa9765
     del model 
     torch.cuda.empty_cache()
 
