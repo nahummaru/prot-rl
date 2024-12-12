@@ -51,7 +51,7 @@ do
     if [ $i != 0 ]; then
     
       echo Train started
-      python DPO.py --iteration_num $i --label $label --mode $DPO_mode --model_dir $model_directory
+      python DPO_pLM.py --iteration_num $i --label $label --mode $DPO_mode --model_dir $model_directory
     
     fi
 
