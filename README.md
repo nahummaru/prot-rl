@@ -16,7 +16,7 @@ If you are interested in testing other features, you can use this template as a 
 
 First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case we download the HF repository locally or use it directly from the repo, specifiying as a flag the directory of the model or the HF name (e.g AI4PD/ZymCTRL). 
 In the folder you execute will be generated the sequences for each iteration
-Results: ![image](https://github.com/user-attachments/assets/b408b256-0697-45b2-a396-2312f87f1ed8)
+![image](https://github.com/user-attachments/assets/b408b256-0697-45b2-a396-2312f87f1ed8)
 
 
 
@@ -25,7 +25,7 @@ Results: ![image](https://github.com/user-attachments/assets/b408b256-0697-45b2-
 `DPO_pLM` is the main Python script for our project. It supports the following flags:
 
 - `--beta`: Specify the beta value.
-- '--model_directory': Specify the local model or the HF name (e.g AI4PD/ZymCTRL or /your/path/ZymCTRL)
+- '`--model_directory`': Specify the local model or the HF name (e.g AI4PD/ZymCTRL or /your/path/ZymCTRL)
 - `--mode`: Choose the mode for experiments. Available options:
   - `paired`
   - `ranked`
