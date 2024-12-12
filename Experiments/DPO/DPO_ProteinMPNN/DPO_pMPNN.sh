@@ -24,7 +24,7 @@ set -o pipefail
 ###################
 
 module load python
-source /home/woody/b114cb/b114cb23/.test_env/bin/activate
+source .env/bin/activate
 
 #export http_proxy=http://proxy:80
 #export https_proxy=http://proxy:80
@@ -59,7 +59,7 @@ do
       echo Folding started
       python ESM_Fold.py --iteration_num $i  --label $label
 
-      cd /home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app
+      cd ./CLEAN/app
 
       # Get esm embeddings 
       echo Retriving esm embeddings
@@ -70,15 +70,13 @@ do
       python CLEAN_infer_fasta.py --iteration_num $((i)) --label "${label}v2"
       cd -
       
-       
-    
       
-    cp "/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/results/inputs/seq_gen_"${label}v2"_iteration$((i))_maxsep.csv" seq_gen_${label}_iteration$((i))_maxsep.csv
+    cp "./CLEAN/app/results/inputs/seq_gen_"${label}v2"_iteration$((i))_maxsep.csv" seq_gen_${label}_iteration$((i))_maxsep.csv
     
 
     # Calculate TM Score
     echo foldseek started for 11ba
-    export PATH=/home/woody/b114cb/b114cb23/foldseek/bin/:$PATH
+    export PATH=./foldseek/bin/:$PATH
     foldseek easy-search output_iteration$((i))/PDB  '1COM.pdb' ${label}_TM_iteration$((i)) tm --format-output "query,target,alntmscore,qtmscore,ttmscore,alnlen" --exhaustive-search 1 -e inf --tmscore-threshold 0.0
     
      # Calculate aligment and clusters
@@ -86,7 +84,7 @@ do
     export PATH=/home/woody/b114cb/b114cb23/mmseqs/bin/:$PATH
     mmseqs easy-cluster seq_gen_${label}_iteration$((i)).fasta clustering/clustResult_0.9_seq_gen_${label}_iteration$((i)) tmp --min-seq-id 0.9
     mmseqs easy-cluster seq_gen_${label}_iteration$((i)).fasta clustering/clustResult_0.5_seq_gen_${label}_iteration$((i)) tmp --min-seq-id 0.5
-    mmseqs easy-search  seq_gen_${label}_iteration$((i)).fasta /home/woody/b114cb/b114cb23/brenda_dataset/database_${label}.fasta alignment/alnResult_seq_gen_${label}_iteration$((i)).m8 tmp    
+    mmseqs easy-search  seq_gen_${label}_iteration$((i)).fasta ./brenda_dataset/database_${label}.fasta alignment/alnResult_seq_gen_${label}_iteration$((i)).m8 tmp    
       
     
     
