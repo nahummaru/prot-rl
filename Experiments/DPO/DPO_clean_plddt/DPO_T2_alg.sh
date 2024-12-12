@@ -24,7 +24,7 @@ set -o pipefail
 ###################
 
 module load python
-source /home/woody/b114cb/b114cb23/.test_env/bin/activate
+source .env/bin/activate
 
 #export http_proxy=http://proxy:80
 #export https_proxy=http://proxy:80
@@ -38,7 +38,7 @@ label="4.6.1.18"
 echo RL for the enzyme class $label
 
 
-for i in $(seq 1 30);
+for i in $(seq 0 30);
 
 do
 
@@ -73,7 +73,7 @@ do
     
     cd -
     
-    cp "/home/woody/b114cb/b114cb23/DPO/DPO_Clean/CLEAN/app/results/inputs/seq_gen_"${label}"_iteration$((i))_maxsep.csv" seq_gen_${label}_iteration$((i))_maxsep.csv
+    cp "./CLEAN/app/results/inputs/seq_gen_"${label}"_iteration$((i))_maxsep.csv" seq_gen_${label}_iteration$((i))_maxsep.csv
      
     # Calculate TM Score
     echo foldseek started for 3pfg
@@ -85,7 +85,7 @@ do
     export PATH=/home/woody/b114cb/b114cb23/mmseqs/bin/:$PATH
     mmseqs easy-cluster seq_gen_${label}_iteration$((i)).fasta clustering/clustResult_0.9_seq_gen_${label}_iteration$((i)) tmp --min-seq-id 0.9
     mmseqs easy-cluster seq_gen_${label}_iteration$((i)).fasta clustering/clustResult_0.5_seq_gen_${label}_iteration$((i)) tmp --min-seq-id 0.5
-    mmseqs easy-search  seq_gen_${label}_iteration$((i)).fasta /home/woody/b114cb/b114cb23/brenda_dataset/database_${label}.fasta alignment/alnResult_seq_gen_${label}_iteration$((i)).m8 tmp    
+    mmseqs easy-search  seq_gen_${label}_iteration$((i)).fasta ./brenda_dataset/database_${label}.fasta alignment/alnResult_seq_gen_${label}_iteration$((i)).m8 tmp    
       
     
     
