@@ -204,7 +204,6 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     
     return loss
 
-
 def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     """
     Calculates the Dynamic Policy Optimization (DPO) ranked loss.
@@ -214,17 +213,23 @@ def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     # Sort weights and corresponding log probabilities in descending order
     sorted_indices = torch.argsort(weights.squeeze(), descending=True)
     pi_log_likelihood = pi_log_likelihood[sorted_indices]
-    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices] 
+    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices]
     weights = weights[sorted_indices]
-    print(f"Sorted weights: {weights}")
 
-    # Reset weights to uniform values for processing
-    weights = torch.ones_like(weights)
+    if pi_ref_loglikelihood is None:
+        pi_ratio = beta * (pi_log_likelihood) 
+    else:
+        pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood)
+    
+    ones = torch.ones_like(pi_ratio)
+    
+    if ones is None or pi_ratio is None:
+        loss = F.cross_entropy(pi_ratio, ones)
+    else:
+        loss = 0
 
-    pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood) if pi_ref_loglikelihood is None else beta * pi_log_likelihood
-   
-    loss = F.cross_entropy(pi_ratio, weights)
     return loss
+
 
 
 # ---------------------------
