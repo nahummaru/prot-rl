@@ -337,7 +337,7 @@ if __name__ == "__main__":
     seed_everything(CONFIG["seed"])
 
     if not os.path.exists(f"dataset_iteration{args.iteration_num}"):
-        dataset = generate_dataset(args.iteration_num, args.label.strip(), args.mode)
+        dataset = generate_dataset(args.iteration_num, args.ec_label.strip(), args.mode)
     else:
         dataset = load_from_disk(f"dataset_iteration{args.iteration_num}")
 
