@@ -23,7 +23,9 @@ This is the repository for the paper [*Guiding Generative Protein Language Model
   - `ranked`: the loss function will take in an ordered set of sequences responses by their reward score and train the model to give preference to the sequences in the ranking order.
   - `weighted`: the loss function will take in a set of sequence with their corresponding reward score and will train the model’s distribution of likelihood over the sequences to match the relative distribution of reward of the sequences derived from the softmax of their scalar labels.
 
-This 3 different loss functions were adapted from the firsts described in [Widatalla et al., 2024](https://www.biorxiv.org/content/10.1101/2024.05.20.595026v1.abstract). You can find detailed explanations for each loss function and its changes in formulation in the Methods section of the [paper](). We recommend applying the weighted mode as it has been extensively tested during our experiments and, in most of the cases, has had higher performance. We are currently working on updated versions for the ranked and paired mode also.
+This 3 different loss functions were adapted from the firsts described in [Widatalla et al., 2024](https://www.biorxiv.org/content/10.1101/2024.05.20.595026v1.abstract). You can find detailed explanations for each loss function and its changes in formulation in the Methods section of the [paper](). We recommend using the weighted mode, as it has been extensively tested during our experiments and has demonstrated superior performance in most cases. Updates to improve the ranked and paired modes are currently in progress.
+
+Note: Weights are treated as "the higher, the better." If your scoring function is designed to be minimized, please multiply it by -1 before adding it to the weights.
 
 ## Installation
 
