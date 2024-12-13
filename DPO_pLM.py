@@ -174,8 +174,8 @@ def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
     negative_sequence = batch["negative_sequence"]
 
     # Log probabilities for positive sequences
-    pos_ref_log_probs = log_likelihood(positive_sequence, device, ref_model, tokenizer)
-    pos_policy_log_probs = log_likelihood(positive_sequence, device, model, tokenizer)
+    pos_ref_log_probs = - log_likelihood(positive_sequence, device, ref_model, tokenizer)
+    pos_policy_log_probs = - log_likelihood(positive_sequence, device, model, tokenizer)
     pos_ratios = beta * (pos_policy_log_probs - pos_ref_log_probs)
 
     # Log probabilities for negative sequences
@@ -214,7 +214,7 @@ def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     # Sort weights and corresponding log probabilities in descending order
     sorted_indices = torch.argsort(weights.squeeze(), descending=True)
     pi_log_likelihood = pi_log_likelihood[sorted_indices]
-    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices] if ref_log_probs is not None else None
+    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices] 
     weights = weights[sorted_indices]
     print(f"Sorted weights: {weights}")
 
