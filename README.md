@@ -45,7 +45,7 @@ DPO_pLM is reported as a very simple script with the objective of decrease the l
 
 First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case we downloaded the [HuggingFace's ZymCTRL](https://huggingface.co/AI4PD/ZymCTRL) repository locally or use it directly from the repo, taking advantage from Huggingface's `transformers` API (AI4PD/ZymCTRL). 
 
-To give an overview of how the different loss functions (or modes) differ, the 3 modes have been ran to generate sequences of around 600 amino acids. With this really simple task we can see that the 3 modes achieve the desired goal in just few iterations.
+With this really simple task we can see that the 3 modes achieve the desired goal in just few iterations.
 
 
 Note that in this case, the objective is to maximise the weight (sequence length), thus the weight must be multiplied by (-1)
