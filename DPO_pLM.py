@@ -82,10 +82,7 @@ def generate_dataset(iteration_num, ec_label, mode):
     with open(f"seq_gen_{ec_label}_iteration{iteration_num-1}.fasta", "r") as f:
         rep_seq = f.readlines()
 
-    with open(f"alpha_{ec_label}_TM_iteration{iteration_num-1}", "r") as f:
-        alpha_TM_score = f.readlines()
-        
-     
+    
     sequences_rep = {}
     for line in rep_seq:
         if ">" in line:
@@ -93,20 +90,14 @@ def generate_dataset(iteration_num, ec_label, mode):
         else:
             sequences_rep[name] = {"sequence": line.strip()}
 
-    for entry in alpha_TM_score:
-            name = entry.split("\t")[0]
-            TM = entry.split("\t")[2]
-            TM_norm_que = entry.split("\t")[4]
-            algn = int(entry.split("\t")[5])
+    for entry in sequences_rep:
+            
             sequence = sequences_rep[str(name)]['sequence']
-            lenght_rew = math.exp(-((((len(sequence)/578)-1)**2)/(0.5**2))) # Gaussian center on 1. The closer the ratio between len and aligment is, the higher is the reward
-            
-            print(f'logging:name:{name}:weight:{float(TM_norm_que)}:algn:{algn}:TM_score:{TM_norm_que}:sequence:{sequence}')
-            
+            lenght_rew = math.exp(-((((len(sequence)/700)**2)/(0.5**2))) # Gaussian center on 1. The closer the ratio between len and aligment is, the higher is the reward
+
             data["sequence"].append(formatting_sequence(sequence, ec_label))
             data["seq_name"].append(entry)
-            data["weight"].append(float(TM_norm_que)+(float(algn)/100))
-     
+            data["weight"].append(len(lenght_rew))
     # Convert data dictionary to a Hugging Face Dataset
     hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
     # Prepare pairs if mode is 'paired'
