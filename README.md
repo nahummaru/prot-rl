@@ -61,8 +61,17 @@ sbatch experiment_name.sh
 ```
 Replace `experiment_name` with the desired experiment script path. Each experiment will produce, fold and calculate statistics for each considered feature.
 
-## External Packages
-In case your are planning to use CLEAN, you will need to clone and set it up as explained in the [repo](https://github.com/user-attachments/assets/7798476a-c979-4005-bc52-4f3608ef1e37)
+## General Usage
+To enhance your desired feature, you can define and compute a custom reward function within the provided template code. Follow these steps:
+
+  1. Add Your Custom Functions: Create your own reward function tailored to the feature you want to reinforce.
+  2. Calculate the Reward: Use your custom function to compute the reward based on your criteria.
+  3. Update the Weights: Add the computed reward to the data["weights"] column.
+
+Note: Ensure the correct sign of the reward based on your optimization goal: 
+  - Use positive values to maximize the scored value.
+  - Use negative values to minimize the scored value.
+In case your are planning to use CLEAN, you will need to clone and set it up as explained in the official [CLEAN repository](https://github.com/tttianhao/CLEAN), and indicate the path in your code. 
 
 ## Troubleshooting
 
