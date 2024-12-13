@@ -41,7 +41,7 @@ This work has been developed and tested on Python 3.10.4.
 
 ## Example 
 
-DPO_pLM is reported as a very simple script with the objective of increasing the length over the different iterations to reach 700 sequence lenght. In the `Experiments` folder you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
+DPO_pLM is reported as a very simple script with the objective of decrease the length over the different iterations to reach a lenght of 60 ammino acids. In the `Experiments` folder you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
 
 First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case we downloaded the [HuggingFace's ZymCTRL](https://huggingface.co/AI4PD/ZymCTRL) repository locally or use it directly from the repo, taking advantage from Huggingface's `transformers` API (AI4PD/ZymCTRL). 
 
