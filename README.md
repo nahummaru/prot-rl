@@ -8,6 +8,7 @@ This is the repository for the paper [*Guiding Generative Protein Language Model
 - [About DPO_pLM](#about-dpo_plm)
 - [Installation](#installation)
 - [Example](#example)
+- [General Usage](#generalusage)
 - [Troubleshooting](#troubleshooting)
 - [References](#references)
 - [Citation](#citation)
@@ -62,11 +63,11 @@ sbatch experiment_name.sh
 Replace `experiment_name` with the desired experiment script path. Each experiment will produce, fold and calculate statistics for each considered feature.
 
 ## General Usage
-To enhance your desired feature, you can define and compute a custom reward function within the provided template code. Follow these steps:
+To reinforce your desired feature, you can define and compute a custom reward function within following these steps:
 
-  1. Add Your Custom Functions: Create your own reward function tailored to the feature you want to reinforce.
+  1. Add Your Custom Functions: Create your own reward function tailored to the feature you want to optimize.
   2. Calculate the Reward: Use your custom function to compute the reward based on your criteria.
-  3. Update the Weights: Add the computed reward to the data["weights"] column.
+  3. Update the DPO weight: Add the computed reward to the data["weights"] column.
 
 Note: Ensure the correct sign of the reward based on your optimization goal: 
   - Use positive values to maximize the scored value.
