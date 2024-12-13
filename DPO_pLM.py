@@ -130,7 +130,7 @@ def prepare_pairs(hf_dataset):
     Prepare paired data from the paired form of DPO.
     """
     # Sort the dataset by weight in descending order
-    sorted_dataset = hf_dataset.sort("weight", reverse=True)
+    sorted_dataset = hf_dataset.sort("weight", reverse=False)
 
     # Split the dataset into two halves
     mid_point = len(sorted_dataset) // 2
