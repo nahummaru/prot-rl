@@ -57,7 +57,7 @@ do
 
     echo Sequence generation started
     # Generate the sequences
-    python seq_gen.py --iteration_num $i --label $label
+    python seq_gen.py --iteration_num $i --ec_label $label
         
     
 done
