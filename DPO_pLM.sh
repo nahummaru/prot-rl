@@ -36,7 +36,7 @@ source .env/bin/activate
 
 label="4.2.1.1" # EC label we want to prompt ZymCTRL with 
 model_directory="AI4PD/ZymCTRL" # put the path to your local model or a Huggingface's repository (to be called with transformer's API)
-DPO_mode="paired" # choose between paired, ranked and weighted 
+DPO_mode="weighted" # choose between paired, ranked and weighted 
 
 echo DPO_pLM for the enzyme class $label, with $DPO_mode mode
 
