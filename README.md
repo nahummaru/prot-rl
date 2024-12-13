@@ -2,7 +2,7 @@
 
 # DPO_pLM: Direct Preference Optimization for Protein Language Models
 
-This is the official repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](). DPO_pLM is a Reinforcement Learning (RL) framework for protein sequence optimization for autoregressive protein Language Models (pLMs). In this repository you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of DPO_pLM ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable other pLMs and custom reward functions. 
+This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](). DPO_pLM is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of DPO_pLM ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable other pLMs and custom reward functions. 
 
 ## About DPO_pLM
 
