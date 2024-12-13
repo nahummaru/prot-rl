@@ -88,7 +88,7 @@ if __name__=='__main__':
         for key, value in sequences.items():
             for index, val in enumerate(value):
                 if all(char in canonical_amino_acids for char in val[0]): # remove sequences with characters out of the 20 canonical amino acids 
-                    out = out + (f'>{ec_label}_{index}_iteration{iteration_num}\n{val[0]}') + ('\n') # store the generated sequences into a string 
+                    out = out + (f'>{ec_label}_{i}_{index}_iteration{iteration_num}\t{val[1]}\n{val[0]}') + ('\n') # store the generated sequences into a string 
     
     output_filename = f"seq_gen_{ec_label}_iteration{iteration_num}.fasta"
     print(f'Generated sequences saved in {output_filename}')
