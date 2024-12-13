@@ -334,7 +334,7 @@ def main(train_loader, eval_loader, iteration_num, model_directory, mode):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--iteration_num", type=int, required=True)
-    parser.add_argument("--label", type=str, required=True)
+    parser.add_argument("--ec_label", type=str, required=True)
     parser.add_argument("--model_dir", type=str, required=True)
     parser.add_argument("--mode", type=str, required=True)
 
