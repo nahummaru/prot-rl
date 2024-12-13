@@ -209,7 +209,7 @@ def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     # Sort weights and corresponding log probabilities in descending order
     sorted_indices = torch.argsort(weights.squeeze(), descending=True)
     pi_log_likelihood = pi_log_likelihood[sorted_indices]
-    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices] if ref_log_probs is not None else None
+    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices] if pi_ref_loglikelihood is not None else None
     weights = weights[sorted_indices]
     print(f"Sorted weights: {weights}")
 
