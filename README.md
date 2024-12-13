@@ -61,6 +61,9 @@ sbatch experiment_name.sh
 ```
 Replace `experiment_name` with the desired experiment script path. Each experiment will produce, fold and calculate statistics for each considered feature.
 
+## External Packages
+In case your are planning to use CLEAN, you will need to clone and set it up as explained in the [repo](https://github.com/user-attachments/assets/7798476a-c979-4005-bc52-4f3608ef1e37)
+
 ## Troubleshooting
 
 Refer to the documentation for more details on how to configure and run your experiments.
