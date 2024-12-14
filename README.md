@@ -2,7 +2,7 @@
 
 # DPO_pLM: Direct Preference Optimization for Protein Language Models
 
-This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://github.com/AI4PDLab/DPO_pLM/blob/main/Stocco_final_main.pdf). DPO_pLM is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of DPO_pLM ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable other pLMs and custom reward functions. 
+This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://github.com/AI4PDLab/DPO_pLM/blob/main/Stocco_final_main.pdf). DPO_pLM is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of DPO_pLM ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. 
 
 ### Table of Content
 - [About DPO_pLM](#about-dpo_plm)
@@ -18,19 +18,19 @@ This is the repository for the paper [*Guiding Generative Protein Language Model
 `DPO_pLM` is the main Python script for our project. It supports the following flags:
 
 - `--beta`: Specify the beta value.
-- `--model_directory`: Specify the local model or the HF name (e.g AI4PD/ZymCTRL or /your/path/ZymCTRL)
+- `--model_directory`: Specify the local model or the HF name (e.g, AI4PD/ZymCTRL or /your/path/ZymCTRL)
 - `--mode`: Choose the mode for experiments. Available options:
-  - `paired`: the loss function will take in an ordered pair of sequences responses with different rewards and train the model to give preference to the sequence with better reward score. 
+  - `paired`: the loss function will take in an ordered pair of sequence responses with different rewards and train the model to give preference to the sequence with the better reward score. 
   - `ranked`: the loss function will take in an ordered set of sequences responses by their reward score and train the model to give preference to the sequences in the ranking order.
-  - `weighted`: the loss function will take in a set of sequence with their corresponding reward score and will train the model’s distribution of likelihood over the sequences to match the relative distribution of reward of the sequences derived from the softmax of their scalar labels.
+  - `weighted`: the loss function will take in a set of sequences with their corresponding reward score and will train the model’s distribution of likelihood over the sequences to match the relative distribution of reward of the sequences derived from the softmax of their scalar labels.
 
-This 3 different loss functions were adapted from the firsts described in [Widatalla et al., 2024](https://www.biorxiv.org/content/10.1101/2024.05.20.595026v1.abstract). You can find detailed explanations for each loss function and its changes in formulation in the Methods section of the [paper](). We recommend using the weighted mode, as it has been extensively tested during our experiments and has demonstrated superior performance in most cases. Updates to improve the ranked and paired modes are currently in progress.
+This 3 different loss functions were adapted from the firsts described in [Widatalla et al., 2024](https://www.biorxiv.org/content/10.1101/2024.05.20.595026v1.abstract). You can find detailed explanations for each loss function and its changes in formulation in the Methods section of the [paper](). We recommend using the weighted mode, as it has been extensively tested during our experiments and has demonstrated superior performance in most cases.
 
 Note: Weights are treated as "the higher, the better." If your scoring function is designed to be minimized, please multiply it by -1 before adding it to the weights.
 
 ## Installation
 
-The software needed to run DPO_pLM can be found in `requeriments.txt`. To set up the environment, execute the following comand inside your desired working environment:
+The software needed to run DPO_pLM can be found in `requeriments.txt`. To set up the environment, execute the following command inside your desired working environment:
 
 ```bash
 git clone https://github.com/AI4PDLab/DPO_pLM.git
@@ -41,14 +41,14 @@ This work has been developed and tested on Python 3.10.4.
 
 ## Example 
 
-DPO_pLM is reported as a very simple script with the objective of decrease the length over the different iterations to reach a lenght of 60 ammino acids. In the `Experiments` folder you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
+DPO_pLM is reported as a very simple script with the objective of decreasing the length over the different iterations to reach a length of 60 amino acids. In the `Experiments` folder, you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes, and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
 
-First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case we downloaded the [HuggingFace's ZymCTRL](https://huggingface.co/AI4PD/ZymCTRL) repository locally or use it directly from the repo, taking advantage from Huggingface's `transformers` API (AI4PD/ZymCTRL). 
+First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case, we downloaded the [HuggingFace's ZymCTRL](https://huggingface.co/AI4PD/ZymCTRL) repository locally or used it directly from the repo, taking advantage of Huggingface's `transformers` API (AI4PD/ZymCTRL). 
 
-With this really simple task we can see that the 3 modes achieve the desired goal in just few iterations.
+With this really simple task, we can see that the 3 modes achieve the desired goal in just a few iterations.
 
 
-Note that in this case, the objective is to maximise the weight (sequence length), thus the weight must be multiplied by (-1)
+Note that in this case, the objective is to maximize the weight (sequence length), thus the weight must be multiplied by (-1)
 
 To reproduce the experiments of our paper, you can find all the scripts in the `Experiments` folder. Given the size and computational needs of pLMs, each one of the experiments were executed in one H100 GPU, with differing times of execution. All the parameters and external data used in the experiments can be found in this repo. The `.sh` scripts can be executed from the same folder to conduct each experiment, they have been built to work on a SLURM based cluster, given the need of GPU-intensive computing. To reproduce the results run: 
 
@@ -75,12 +75,12 @@ In case your are planning to use CLEAN, you will need to clone and set it up as 
 
 ## Troubleshooting
 
-Refer to the documentation for more details on how to configure and run your experiments.
+Please take a look at the documentation for more details on how to configure and run your experiments.
 
 Feel free to contribute or raise issues if you encounter any problems! We are working to make it more accessible and detailed
 ## Work in Progress
 
-We are currently working on releasing a even more user friendly version.
+We are currently working on a more user-friendly version.
 ## References
 
 - ESM1v: "Language models enable zero-shot prediction of the effects of mutations on protein function" Joshua Meier, Roshan Rao, Robert Verkuil, Jason Liu, Tom Sercu, Alexander Rives; doi: https://doi.org/10.1101/2021.07.09.450648. Computed using https://github.com/seanrjohnson/protein_gibbs_sampler/
@@ -89,6 +89,6 @@ We are currently working on releasing a even more user friendly version.
 
 ## Citation 
 
-If you have found our work useful, please considering citing: 
+The preprint should be shortly on biorxiv (BIORXIV/2024/628045). 
 
 
