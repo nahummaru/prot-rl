@@ -48,8 +48,6 @@ First of all, you will need to set up ZymCTRL or the pLM of your choice. In our 
 With this really simple task, we can see that the 3 modes achieve the desired goal in just a few iterations.
 
 
-Note that in this case, the objective is to maximize the weight (sequence length), thus the weight must be multiplied by (-1)
-
 To reproduce the experiments of our paper, you can find all the scripts in the `Experiments` folder. Given the size and computational needs of pLMs, each one of the experiments were executed in one H100 GPU, with differing times of execution. All the parameters and external data used in the experiments can be found in this repo. The `.sh` scripts can be executed from the same folder to conduct each experiment, they have been built to work on a SLURM based cluster, given the need of GPU-intensive computing. To reproduce the results run: 
 
 ```bash
