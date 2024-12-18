@@ -1,4 +1,4 @@
-<img src="[https://github.com/user-attachments/assets/2f8f73d0-53da-41a5-b9ad-9278287be3ca](https://github.com/user-attachments/assets/6857cfe5-8b43-4a7c-aeea-e1e55eb04c73)" width="600"  text-align="center">
+<img src="https://github.com/user-attachments/assets/6857cfe5-8b43-4a7c-aeea-e1e55eb04c73" width="600"  text-align="center">
 
 # DPO_pLM: Direct Preference Optimization for Protein Language Models
 
