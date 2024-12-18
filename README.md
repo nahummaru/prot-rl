@@ -2,7 +2,7 @@
 
 # DPO_pLM: Direct Preference Optimization for Protein Language Models
 
-This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://github.com/AI4PDLab/DPO_pLM/blob/main/Stocco_final_main.pdf). DPO_pLM is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of DPO_pLM ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. 
+This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://arxiv.org/abs/2412.12979). DPO_pLM is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of DPO_pLM ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. 
 
 ### Table of Content
 - [About DPO_pLM](#about-dpo_plm)
@@ -87,6 +87,20 @@ We are currently working on a more user-friendly version.
 
 ## Citation 
 
-The preprint should be shortly on biorxiv (BIORXIV/2024/628045). 
+If you use DPO_pLM, please cite our [preprint](https://arxiv.org/abs/2412.12979):
+
+```
+@misc{stocco2024guidinggenerativeproteinlanguage,
+      title={Guiding Generative Protein Language Models with Reinforcement Learning}, 
+      author={Filippo Stocco and Maria Artigues-Lleixa and Andrea Hunklinger and Talal Widatalla and Marc Guell and Noelia Ferruz},
+      year={2024},
+      eprint={2412.12979},
+      archivePrefix={arXiv},
+      primaryClass={q-bio.BM},
+      url={https://arxiv.org/abs/2412.12979}, 
+}
+```
+
+ 
 
 
