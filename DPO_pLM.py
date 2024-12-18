@@ -92,7 +92,7 @@ def generate_dataset(iteration_num, ec_label, mode):
     for entry in sequences_rep:
             
             sequence = sequences_rep[str(name)]['sequence']
-            lenght_rew = math.exp(-((((len(sequence)/700)**2)/(0.5**2)))) # Gaussian center on 1. The closer the ratio between len and aligment is, the higher is the reward
+            lenght_rew = math.exp(-((((60-len(sequence))-1)**2)/(0.5**2))) # Gaussian center on 1. The closer the ratio between len and aligment is, the higher is the reward
 
             data["sequence"].append(formatting_sequence(sequence, ec_label))
             data["seq_name"].append(entry)
