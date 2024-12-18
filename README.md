@@ -1,4 +1,4 @@
-![Git_front]((https://github.com/user-attachments/assets/c7f3c38c-7d9a-4f37-ad03-152c8c7fb187))
+<img src="https://github.com/user-attachments/assets/2f8f73d0-53da-41a5-b9ad-9278287be3ca" width="600"  text-align="center">
 
 # DPO_pLM: Direct Preference Optimization for Protein Language Models
 
