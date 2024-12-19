@@ -40,14 +40,14 @@ pip install -r requirements.txt
 This work has been developed and tested on Python 3.10.4.
 
 ## Example 
-![git](https://github.com/user-attachments/assets/68da1180-198c-45b3-8a76-ad7938a69905)
 
 DPO_pLM is reported as a very simple script with the objective of decreasing the length over the different iterations to reach a length of 60 amino acids. In the `Experiments` folder, you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes, and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
 
 First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case, we downloaded the [HuggingFace's ZymCTRL](https://huggingface.co/AI4PD/ZymCTRL) repository locally or used it directly from the repo, taking advantage of Huggingface's `transformers` API (AI4PD/ZymCTRL). 
 
-With this really simple task, we can see that the 3 modes achieve the desired goal in just a few iterations.
+With this really simple task, we can see that the 3 modes achieve the desired goal in just a few iterations. The weighted form results to be the more stable with low data regime.
 
+![git](https://github.com/user-attachments/assets/68da1180-198c-45b3-8a76-ad7938a69905)
 
 To reproduce the experiments of our paper, you can find all the scripts in the `Experiments` folder. Given the size and computational needs of pLMs, each one of the experiments were executed in one H100 GPU, with differing times of execution. All the parameters and external data used in the experiments can be found in this repo. The `.sh` scripts can be executed from the same folder to conduct each experiment, they have been built to work on a SLURM based cluster, given the need of GPU-intensive computing. To reproduce the results run: 
 
