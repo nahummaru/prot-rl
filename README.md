@@ -47,7 +47,7 @@ First of all, you will need to set up ZymCTRL or the pLM of your choice. In our 
 
 With this really simple task, we can see that the 3 modes achieve the desired goal in just a few iterations. The weighted form results to be the more stable with low data regime.
 
-![git](https://github.com/user-attachments/assets/68da1180-198c-45b3-8a76-ad7938a69905  width="600")
+<img src = "https://github.com/user-attachments/assets/68da1180-198c-45b3-8a76-ad7938a69905"  width="600">
 
 To reproduce the experiments of our paper, you can find all the scripts in the `Experiments` folder. Given the size and computational needs of pLMs, each one of the experiments were executed in one H100 GPU, with differing times of execution. All the parameters and external data used in the experiments can be found in this repo. The `.sh` scripts can be executed from the same folder to conduct each experiment, they have been built to work on a SLURM based cluster, given the need of GPU-intensive computing. To reproduce the results run: 
 
