@@ -40,6 +40,7 @@ pip install -r requirements.txt
 This work has been developed and tested on Python 3.10.4.
 
 ## Example 
+![git](https://github.com/user-attachments/assets/68da1180-198c-45b3-8a76-ad7938a69905)
 
 DPO_pLM is reported as a very simple script with the objective of decreasing the length over the different iterations to reach a length of 60 amino acids. In the `Experiments` folder, you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes, and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
 
