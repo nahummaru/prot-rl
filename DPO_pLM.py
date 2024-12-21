@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from datasets import Dataset, load_from_disk, DatasetDict
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 # ---------------------------
@@ -81,7 +82,6 @@ def generate_dataset(iteration_num, ec_label, mode):
     with open(f"seq_gen_{ec_label}_iteration{iteration_num-1}.fasta", "r") as f:
         rep_seq = f.readlines()
 
-    
     sequences_rep = {}
     for line in rep_seq:
         if ">" in line:
@@ -90,15 +90,18 @@ def generate_dataset(iteration_num, ec_label, mode):
             sequences_rep[name] = {"sequence": line.strip()}
 
     for entry in sequences_rep:
-            
+            name = entry
             sequence = sequences_rep[str(name)]['sequence']
-            lenght_rew = math.exp(-((((60-len(sequence))-1)**2)/(0.5**2))) # Gaussian center on 1. The closer the ratio between len and aligment is, the higher is the reward
-
+            lenght_rew = 60-len(sequence) if len(sequence)>60 else 0  
+            
+            
             data["sequence"].append(formatting_sequence(sequence, ec_label))
             data["seq_name"].append(entry)
-            data["weight"].append(len(lenght_rew))
+            data["weight"].append(float(lenght_rew))
+     
     # Convert data dictionary to a Hugging Face Dataset
     hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
+
     # Prepare pairs if mode is 'paired'
     if mode == 'paired':
         hf_dataset = prepare_pairs(hf_dataset)
@@ -114,6 +117,7 @@ def generate_dataset(iteration_num, ec_label, mode):
     final_dataset.save_to_disk(f"dataset_iteration{iteration_num}")
 
     return final_dataset
+
 
 def prepare_pairs(hf_dataset):
     """
@@ -164,8 +168,8 @@ def dpo_paired_loss(batch, model, ref_model, tokenizer, device, beta=0.1):
     negative_sequence = batch["negative_sequence"]
 
     # Log probabilities for positive sequences
-    pos_ref_log_probs = - log_likelihood(positive_sequence, device, ref_model, tokenizer)
-    pos_policy_log_probs = - log_likelihood(positive_sequence, device, model, tokenizer)
+    pos_ref_log_probs = log_likelihood(positive_sequence, device, ref_model, tokenizer)
+    pos_policy_log_probs = log_likelihood(positive_sequence, device, model, tokenizer)
     pos_ratios = beta * (pos_policy_log_probs - pos_ref_log_probs)
 
     # Log probabilities for negative sequences
@@ -194,30 +198,35 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     
     return loss
 
+
+import torch
+import torch.nn.functional as F
+
 def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     """
     Calculates the Dynamic Policy Optimization (DPO) ranked loss.
     In this case the ranking is on the batch dimension.
-
     """
-    # Sort weights and corresponding log probabilities in descending order
-    sorted_indices = torch.argsort(weights.squeeze(), descending=True)
+    # Ensure weights have at least one dimension
+    weights = torch.softmax(weights, dim=0)
+    weights = weights.view(-1)  
+    
+    sorted_indices = torch.argsort(weights, descending=True)
     pi_log_likelihood = pi_log_likelihood[sorted_indices]
-    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices]
+    pi_ref_loglikelihood = pi_ref_loglikelihood[sorted_indices] if pi_ref_loglikelihood is not None else None
     weights = weights[sorted_indices]
+    print(f"Sorted weights: {weights}")
 
-    if pi_ref_loglikelihood is None:
-        pi_ratio = beta * (pi_log_likelihood) 
-    else:
+    if pi_ref_loglikelihood is not None:
         pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood)
-    
-    ones = torch.ones_like(pi_ratio)
-    
-    if ones is None or pi_ratio is None:
-        loss = F.cross_entropy(pi_ratio, ones)
     else:
-        loss = 0
+        pi_ratio = beta * pi_log_likelihood
 
+    uniform_weights = torch.ones_like(pi_ratio)
+    print(f"pi ratios: {pi_ratio}")
+
+    
+    loss = F.mse_loss(pi_ratio, uniform_weights)
     return loss
 
 
@@ -329,7 +338,7 @@ def main(train_loader, eval_loader, iteration_num, model_directory, mode):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--iteration_num", type=int, required=True)
-    parser.add_argument("--ec_label", type=str, required=True)
+    parser.add_argument("--label", type=str, required=True)
     parser.add_argument("--model_dir", type=str, required=True)
     parser.add_argument("--mode", type=str, required=True)
 
@@ -337,7 +346,7 @@ if __name__ == "__main__":
     seed_everything(CONFIG["seed"])
 
     if not os.path.exists(f"dataset_iteration{args.iteration_num}"):
-        dataset = generate_dataset(args.iteration_num, args.ec_label.strip(), args.mode)
+        dataset = generate_dataset(args.iteration_num, args.label.strip(), args.mode)
     else:
         dataset = load_from_disk(f"dataset_iteration{args.iteration_num}")
 
