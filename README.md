@@ -45,7 +45,7 @@ DPO_pLM is reported as a very simple script with the objective of decreasing the
 
 First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case, we downloaded the [HuggingFace's ZymCTRL](https://huggingface.co/AI4PD/ZymCTRL) repository locally or used it directly from the repo, taking advantage of Huggingface's `transformers` API (AI4PD/ZymCTRL). 
 
-With this really simple task, we can see that the 3 modes achieve the desired goal in just a few iterations. The weighted form results to be the more stable with low data regime.
+With this simple task, we observe that the three modes achieve the desired goal within just a few iterations. While the paired and ranked modes reach the objectives more quickly, they are more prone to catastrophic forgetting compared to the weighted mode. The weighted mode proves to be more stable, particularly in low-data scenarios. It is likely that, with a more complex scoring function and additional data, the ranked and paired algorithms could demonstrate improved performance and behavior.
 
 <img src = "https://github.com/user-attachments/assets/68da1180-198c-45b3-8a76-ad7938a69905"  width="600">
 
