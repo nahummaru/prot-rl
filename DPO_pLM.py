@@ -35,7 +35,6 @@ CONFIG = {
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-target_lenght = 600 # Set here your target lenght
 
 # ---------------------------
 # Utility Functions
