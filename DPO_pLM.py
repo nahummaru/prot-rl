@@ -92,9 +92,8 @@ def generate_dataset(iteration_num, ec_label, mode):
     for entry in sequences_rep:
             name = entry
             sequence = sequences_rep[str(name)]['sequence']
-            lenght_rew = 60-len(sequence) if len(sequence)>60 else 0  
-            
-            
+            lenght_rew = 60-len(sequence) if len(sequence)>60 else 0   # Here we want to minimize the lenght, so we use a negative value
+                                                                       # if we reach the objective (len < 0), the score is 0
             data["sequence"].append(formatting_sequence(sequence, ec_label))
             data["seq_name"].append(entry)
             data["weight"].append(float(lenght_rew))
