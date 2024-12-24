@@ -150,8 +150,8 @@ def log_likelihood(sequences, device, model, tokenizer):
     for sequence in sequences:
         inputs = tokenizer.encode(sequence, return_tensors='pt').to(device)
         outputs = model(inputs, labels=inputs)
-        neg_log_likelihood, logits = outputs[:2]
-        all_log_likelihood.append(- neg_log_likelihood.unsqueeze(0))
+        neg_log_likelihood, logits = outputs[:2]                        # The HF loss output is the negative log-likelihood averaged over the number of tokens.
+        all_neg_log_likelihood.append(-neg_log_likelihood.unsqueeze(0)) # Convert negative log-likelihood to likelihood by multiplying by -1.
         
     all_log_likelihood = torch.cat(all_log_likelihood)
     
