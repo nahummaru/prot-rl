@@ -151,9 +151,9 @@ def log_likelihood(sequences, device, model, tokenizer):
         inputs = tokenizer.encode(sequence, return_tensors='pt').to(device)
         outputs = model(inputs, labels=inputs)
         neg_log_likelihood, logits = outputs[:2]
-        all_neg_log_likelihood.append(neg_log_likelihood.unsqueeze(0))
+        all_log_likelihood.append(- neg_log_likelihood.unsqueeze(0))
         
-    all_neg_log_likelihood = torch.cat(all_neg_log_likelihood)
+    all_log_likelihood = torch.cat(all_log_likelihood)
     
     return all_neg_log_likelihood
 
@@ -191,7 +191,7 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     else:
         pi_ratio = beta * (pi_log_likelihood - ref_log_likelihood)
         
-    weights = torch.softmax(weights * -1, dim=0)
+    weights = torch.softmax(weights, dim=0)
     loss = F.cross_entropy(pi_ratio, weights)
     
     return loss
