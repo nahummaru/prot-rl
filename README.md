@@ -70,6 +70,7 @@ To reinforce your desired feature, you can define and compute a custom reward fu
 Note: Ensure the correct sign of the reward based on your optimization goal: 
   - Use positive values to maximize the scored value.
   - Use negative values to minimize the scored value.
+    
 In case your are planning to use CLEAN, you will need to clone and set it up as explained in the official [CLEAN repository](https://github.com/tttianhao/CLEAN), and indicate the path in your code. 
 
 ## Troubleshooting
