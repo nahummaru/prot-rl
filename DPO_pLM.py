@@ -202,7 +202,7 @@ import torch.nn.functional as F
 
 def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     """
-    Calculates the Dynamic Policy Optimization (DPO) ranked loss.
+    Calculates the Directed Policy Optimization (DPO) ranked loss.
     In this case the ranking is on the batch dimension.
     """
     # Ensure weights have at least one dimension
