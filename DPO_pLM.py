@@ -197,9 +197,6 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     return loss
 
 
-import torch
-import torch.nn.functional as F
-
 def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     """
     Calculates the Directed Policy Optimization (DPO) ranked loss.
@@ -224,7 +221,7 @@ def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     print(f"pi ratios: {pi_ratio}")
 
     
-    loss = F.mse_loss(pi_ratio, uniform_weights)
+    loss = F.cross_entropy(pi_ratio, uniform_weights)
     return loss
 
 
