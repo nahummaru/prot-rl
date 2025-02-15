@@ -242,6 +242,8 @@ def train(model, ref_model, tokenizer, train_loader, optimizer, device, mode):
             sequences = batch["sequence"] 
             ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
             policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
+            if ref_model == model:
+                    policy_log_probs = None
             weights = batch["weight"].to(device)
             
             if mode == "weighted":
