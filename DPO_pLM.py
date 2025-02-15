@@ -186,7 +186,7 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
     generative models with experimental fitness via Direct Preference Optimization"
     """
-    if ref_log_likelihood == pi_log_likelihood:
+    if pi_ref_loglikelihood is not None:
         pi_ratio = beta * pi_log_likelihood
     else:
         pi_ratio = beta * (pi_log_likelihood - ref_log_likelihood)
