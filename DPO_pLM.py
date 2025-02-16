@@ -50,6 +50,12 @@ def seed_everything(seed=2003):
     torch.backends.cudnn.deterministic = True
 
 
+def models_equal(model1, model2):
+    for p1, p2 in zip(model1.parameters(), model2.parameters()):
+        if not torch.equal(p1, p2):
+            return False
+    return True
+
 def formatting_sequence(sequence, ec_label):
     """
     Formats correctly the sequence as in the ZymCTRL trainset.
@@ -242,8 +248,9 @@ def train(model, ref_model, tokenizer, train_loader, optimizer, device, mode):
             sequences = batch["sequence"] 
             ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
             policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
-            if ref_model == model:
-                    policy_log_probs = None
+            if models_equal(ref_model, model):
+                ref_log_probs = None
+                
             weights = batch["weight"].to(device)
             
             if mode == "weighted":
@@ -279,8 +286,8 @@ def evaluate(model, ref_model, tokenizer, eval_loader, optimizer, device, mode):
                 ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
                 policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
                 
-                if ref_model == model:
-                    policy_log_probs = None
+                if models_equal(ref_model, model):
+                    ref_log_probs = None
                     
                 weights = batch["weight"].to(device)
                 
