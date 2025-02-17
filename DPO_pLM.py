@@ -192,7 +192,7 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
     generative models with experimental fitness via Direct Preference Optimization"
     """
-    if ref_log_likelihood is not None:
+    if ref_log_likelihood is not None: # First iteration, where ref_model == model, ratio consider only the model, otherwise loss would be zero
         pi_ratio = beta * pi_log_likelihood
     else:
         pi_ratio = beta * (pi_log_likelihood - ref_log_likelihood)
@@ -248,7 +248,8 @@ def train(model, ref_model, tokenizer, iteration_num, train_loader, optimizer, d
             sequences = batch["sequence"] 
             ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
             policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
-            if models_equal(ref_model, model) or iteration_num == 1:
+            
+            if models_equal(ref_model, model) or iteration_num == 1: # If the model == ref_model we set ref_log_probs to be None
                 ref_log_probs = None
                 
             weights = batch["weight"].to(device)
@@ -286,7 +287,7 @@ def evaluate(model, ref_model, tokenizer, iteration_num, eval_loader, optimizer,
                 ref_log_probs = log_likelihood(sequences, device, ref_model, tokenizer)
                 policy_log_probs = log_likelihood(sequences, device, model, tokenizer)
                 
-                if models_equal(ref_model, model) or iteration_num == 1:
+                if models_equal(ref_model, model) or iteration_num == 1: # If the model == ref_model we set ref_log_probs to be None
                     ref_log_probs = None
                     
                 weights = batch["weight"].to(device)
