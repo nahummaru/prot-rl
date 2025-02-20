@@ -5,7 +5,7 @@
 This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://arxiv.org/abs/2412.12979). ProtRL is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of ProtRL ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. 
 
 ### Table of Content
-- [About DPO_pLM](#about-dpo_plm)
+- [About ProtRL](#about-dpo_plm)
 - [Installation](#installation)
 - [Example](#example)
 - [General Usage](#generalusage)
