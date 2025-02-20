@@ -1,8 +1,8 @@
 <img src="https://github.com/user-attachments/assets/6857cfe5-8b43-4a7c-aeea-e1e55eb04c73" width="600"  text-align="center">
 
-# DPO_pLM: Direct Preference Optimization for Protein Language Models
+# ProtRL: Direct Preference Optimization for Protein Language Models
 
-This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://arxiv.org/abs/2412.12979). DPO_pLM is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of DPO_pLM ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. 
+This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://arxiv.org/abs/2412.12979). ProtRL is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of ProtRL ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. 
 
 ### Table of Content
 - [About DPO_pLM](#about-dpo_plm)
@@ -13,7 +13,7 @@ This is the repository for the paper [*Guiding Generative Protein Language Model
 - [References](#references)
 - [Citation](#citation)
 
-## About DPO_pLM
+## About ProtRL
 
 `DPO_pLM` is the main Python script for our project. It supports the following flags:
 
@@ -30,18 +30,18 @@ Note: Weights are treated as "the higher, the better." If your scoring function 
 
 ## Installation
 
-The software needed to run DPO_pLM can be found in `requeriments.txt`. To set up the environment, execute the following command inside your desired working environment:
+The software needed to run ProtRL can be found in `requeriments.txt`. To set up the environment, execute the following command inside your desired working environment:
 
 ```bash
-git clone https://github.com/AI4PDLab/DPO_pLM.git
-cd DPO_pLM
+git clone https://github.com/AI4PDLab/ProtRL.git
+cd ProtRL
 pip install -r requirements.txt
 ```
 This work has been developed and tested on Python 3.10.4.
 
 ## Example 
 
-DPO_pLM is reported as a very simple script with the objective of decreasing the length over the different iterations to reach a length of 60 amino acids. In the `Experiments` folder, you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes, and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
+ProtRL is reported as a very simple script with the objective of decreasing the length over the different iterations to reach a length of 60 amino acids. In the `Experiments` folder, you can find the scripts for experiments that implement more complex scoring functions such as protein folds, functional annotation of enzymes, and experimental data. If you are interested in optimizing for other protein features, you can use `DPO_pLM.py` as a template for your custom RL experiments.
 
 First of all, you will need to set up ZymCTRL or the pLM of your choice. In our case, we downloaded the [HuggingFace's ZymCTRL](https://huggingface.co/AI4PD/ZymCTRL) repository locally or used it directly from the repo, taking advantage of Huggingface's `transformers` API (AI4PD/ZymCTRL). 
 
@@ -89,7 +89,7 @@ We are currently working on a more user-friendly version. Additionaly we are wor
 
 ## Citation 
 
-If you use DPO_pLM, please cite our [preprint](https://arxiv.org/abs/2412.12979):
+If you use ProtRL, please cite our [preprint](https://arxiv.org/abs/2412.12979):
 
 ```
 @misc{stocco2024guidinggenerativeproteinlanguage,
