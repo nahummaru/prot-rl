@@ -2,7 +2,7 @@
 
 # ProtRL: Direct Preference Optimization for Protein Language Models
 
-This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://arxiv.org/abs/2412.12979). ProtRL is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of ProtRL ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. 
+This is the repository for the paper [*Guiding Generative Protein Language Models with Reinforcement Learning*](https://arxiv.org/abs/2412.12979). ProtRL is a Reinforcement Learning (RL) framework for autoregressive protein Language Models (pLMs). In this repository, you will find the scripts used for the experiments found on the paper (`Experiments`) and a basic implementation of ProtRL ready to work with ZymCTRL and optimize sequences to a desired length. This implementation is minimal and easily amenable to other pLMs and custom reward functions. We futher provide the application of DPO for ZymCTRL, ProtGPT2 and RexZYME
 
 ### Table of Content
 - [About ProtRL](#about-dpo_plm)
