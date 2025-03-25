@@ -192,7 +192,7 @@ def dpo_weighted_loss(pi_log_likelihood, ref_log_likelihood, weights, beta=0.1):
     Function kindly provided by Widatalla et.al 2024 "Aligning protein 
     generative models with experimental fitness via Direct Preference Optimization"
     """
-    if ref_log_likelihood is not None: # First iteration, where ref_model == model, ratio consider only the model, otherwise loss would be zero
+    if ref_log_likelihood is None: # First iteration, where ref_model == model, ratio consider only the model, otherwise loss would be zero
         pi_ratio = beta * pi_log_likelihood
     else:
         pi_ratio = beta * (pi_log_likelihood - ref_log_likelihood)
@@ -218,10 +218,10 @@ def dpo_ranked_loss(pi_log_likelihood, pi_ref_loglikelihood, weights, beta=0.1):
     weights = weights[sorted_indices]
     print(f"Sorted weights: {weights}")
 
-    if pi_ref_loglikelihood is not None:
-        pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood)
-    else:
+    if pi_ref_loglikelihood is None:
         pi_ratio = beta * pi_log_likelihood
+    else:
+        pi_ratio = beta * (pi_log_likelihood - pi_ref_loglikelihood)
 
     uniform_weights = torch.ones_like(pi_ratio)
     print(f"pi ratios: {pi_ratio}")
