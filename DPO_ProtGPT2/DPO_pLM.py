@@ -76,7 +76,7 @@ def formatting_sequence(sequence):
     """
     Formats correctly the sequence as in the ProtGPT2 trainset.
     """
-    return "<|endoftext|>"+"\n".join(sequence[i:i+60] for i in range(0, len(sequence), 60))+"<|endoftext|>"
+    return "<|endoftext|>\n"+"\n".join(sequence[i:i+60] for i in range(0, len(sequence), 60))+"\n"
 
 
 def save_model_and_tokenizer(model, tokenizer, output_dir):
