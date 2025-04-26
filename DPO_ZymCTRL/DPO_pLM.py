@@ -16,6 +16,7 @@ import pandas as pd
 from datasets import Dataset, load_from_disk, DatasetDict
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from stability import compute_stability
 
 
 # ---------------------------
@@ -56,11 +57,11 @@ def models_equal(model1, model2):
             return False
     return True
 
-def formatting_sequence(sequence, ec_label):
+def formatting_sequence(sequence, ec_label, control_tag=None):
     """
     Formats correctly the sequence as in the ZymCTRL trainset.
     """
-    return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
+    return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>" if control_tag is None else f"{ec_label}<sep><start>{sequence}<end><|endoftext|>{control_tag}"
 
 
 def save_model_and_tokenizer(model, tokenizer, output_dir):
@@ -76,51 +77,65 @@ def save_model_and_tokenizer(model, tokenizer, output_dir):
 # ---------------------------
 # Dataset Generation
 # ---------------------------
-def generate_dataset(iteration_num, ec_label, mode):
-    data = dict()
-    data = {
-        "sequence" : [],
-        "seq_name" : [],
-        "weight" : [],
-        }
-    
-    with open(f"seq_gen_{ec_label}_iteration{iteration_num-1}.fasta", "r") as f:
-        rep_seq = f.readlines()
+def generate_dataset(iteration_num, ec_label, mode, control_tag=None):
+    """
+    Builds an HF dataset of (input, sequence, weight) for stability RL.
+    - iteration_num: which round (reads from previous FASTA)
+    - ec_label: e.g. "4.2.1.1"
+    - mode: "single" or "paired"
+    """
+    import pandas as pd
+    from datasets import Dataset, DatasetDict
 
-    sequences_rep = {}
-    for line in rep_seq:
-        if ">" in line:
-            name = line.split("\t")[0].replace(">", "").strip()
-        else:
-            sequences_rep[name] = {"sequence": line.strip()}
+    # 1) Read FASTA
+    sequences = {}
+    with open(f"seq_gen_{ec_label}_iteration{iteration_num-1}.fasta") as f:
+        current = None
+        for l in f:
+            l = l.strip()
+            if l.startswith(">"):
+                current = l[1:].split()[0]
+                sequences[current] = ""
+            else:
+                sequences[current] += l
 
-    for entry in sequences_rep:
-            name = entry
-            sequence = sequences_rep[str(name)]['sequence']
-            lenght_rew = 60-len(sequence) if len(sequence)>60 else 0   # Here we want to minimize the lenght, so we use a negative value
-                                                                       # if we reach the objective (len < 0), the score is 0
-            data["sequence"].append(formatting_sequence(sequence, ec_label))
-            data["seq_name"].append(entry)
-            data["weight"].append(float(lenght_rew))
-     
-    # Convert data dictionary to a Hugging Face Dataset
-    hf_dataset = Dataset.from_pandas(pd.DataFrame(data))
+    rows = []
+    for name, seq in sequences.items():
+        # 2) length penalty
+        length_penalty = max(0, len(seq) - 60)
 
-    # Prepare pairs if mode is 'paired'
+        # 3) stability proxy
+        stability_score = compute_stability(seq)
+        total_reward = stability_score - 0.01 * length_penalty
+
+        # 4) control tag
+        stability_tag = "<stability=high>" if stability_score > 0.7 else "<stability=low>"
+        prompt = f"<EC={ec_label}> {stability_tag}"
+
+        rows.append({
+            "input": prompt,
+            "sequence": seq,
+            "formatted": formatting_sequence(seq, ec_label, stability_tag),
+            "name": name,
+            "weight": float(total_reward),
+        })
+
+    # 5) build HF dataset
+    df = pd.DataFrame(rows)
+    hf = Dataset.from_pandas(df)
+
     if mode == 'paired':
-        hf_dataset = prepare_pairs(hf_dataset)
+        hf = prepare_pairs(hf)
 
-    # Shuffle and split the dataset
-    shuffled_dataset = hf_dataset.shuffle(seed=CONFIG["seed"])
-    train_size = int((1 - CONFIG["split_percent"]) * len(shuffled_dataset))
-    train_dataset = shuffled_dataset.select(range(train_size))
-    eval_dataset = shuffled_dataset.select(range(train_size, len(shuffled_dataset)))
-
-    # Save the dataset to disk and return
-    final_dataset = DatasetDict({"train": train_dataset, "eval": eval_dataset})
-    final_dataset.save_to_disk(f"dataset_iteration{iteration_num}")
-
-    return final_dataset
+    # 6) shuffle & split
+    hf = hf.shuffle(seed=CONFIG["seed"])
+    n_train = int((1 - CONFIG["split_percent"]) * len(hf))
+    ds = DatasetDict({
+        "train": hf.select(range(n_train)),
+        "eval": hf.select(range(n_train, len(hf))),
+    })
+    ds.save_to_disk(f"dataset_iteration{iteration_num}")
+    return ds
 
 
 def prepare_pairs(hf_dataset):

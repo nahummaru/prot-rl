@@ -64,7 +64,7 @@ if __name__=='__main__':
     iteration_num = args.iteration_num
     ec_label = args.ec_label
 
-    device = torch.device("cuda") # Replace with 'cpu' if you don't have a GPU - but it will be slow
+    device = torch.device("cpu") # Replace with 'cpu' if you don't have a GPU - but it will be slow
     print('Reading pretrained model and tokenizer')
     
     if iteration_num == 0:
@@ -72,6 +72,7 @@ if __name__=='__main__':
     else:
       model_name = f'output_iteration{iteration_num}'
     
+    import pdb; pdb.set_trace()
     print(f'{model_name} loaded in {device}')
     tokenizer = AutoTokenizer.from_pretrained(model_name) 
     model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
@@ -97,6 +98,6 @@ if __name__=='__main__':
 
     # free memory resources 
     del model 
-    torch.cuda.empty_cache()
+    #torch.cuda.empty_cache()
 
     
