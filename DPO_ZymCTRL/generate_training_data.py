@@ -152,13 +152,17 @@ if __name__ == '__main__':
     parser.add_argument("--ec_label", type=str, default="4.2.1.1")
     parser.add_argument("--n_batches", type=int, default=1)
     parser.add_argument("--tag", type=str, default="")
+    parser.add_argument("--model_path", type=str, default="",
+                      help="Optional: Path to specific model checkpoint to use. If not provided, uses iteration-based loading.")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
     # Load model and tokenizer
-    if args.iteration_num == 0:
+    if args.model_path:
+        model_name = args.model_path
+    elif args.iteration_num == 0:
         model_name = 'AI4PD/ZymCTRL'
     else:
         model_name = f'output_iteration{args.iteration_num}'
