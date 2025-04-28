@@ -339,6 +339,10 @@ def main():
                         help='Disable Weights & Biases logging')
     parser.add_argument('--max_length', type=int, default=512,
                         help='Maximum sequence length')
+    parser.add_argument('--tag', type=str, default="",
+                        help='Tag for the training data')
+    parser.add_argument('--iteration_num', type=int, default=0,
+                        help='Iteration number for the training data')
     
     args = parser.parse_args()
     

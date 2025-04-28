@@ -3,6 +3,7 @@ from transformers import GPT2LMHeadModel, AutoTokenizer
 from stability import stability_score
 import pandas as pd
 from tqdm import tqdm
+import json
 
 def remove_characters(sequence, char_list):
     '''
@@ -39,7 +40,7 @@ def main(label, model, special_tokens, device, tokenizer):
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=12)  # Using smaller batch size
+        num_return_sequences=2)  # Using smaller batch size
     
     print(f"Generated {len(outputs)} raw sequences")
     
@@ -150,6 +151,7 @@ if __name__ == '__main__':
     parser.add_argument("--iteration_num", type=int, default=0)
     parser.add_argument("--ec_label", type=str, default="4.2.1.1")
     parser.add_argument("--n_batches", type=int, default=1)
+    parser.add_argument("--tag", type=str, default="")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -179,6 +181,12 @@ if __name__ == '__main__':
             
         # Clear GPU memory after each batch
         torch.cuda.empty_cache()
+
+    output_dir = f"training_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
+
+    # Save sequences to file 
+    with open(f"{output_dir}/sequences.json", "w") as f:
+        json.dump(all_sequences, f)
     
     # Process sequences and add stability scores
     print("\nComputing stability scores...")
@@ -186,7 +194,7 @@ if __name__ == '__main__':
     
     # Save results
     print("\nSaving results...")
-    save_data(df, output_dir=f"training_data_iteration{args.iteration_num}")
+    save_data(df, output_dir=output_dir)
     
     # Clean up
     del model
