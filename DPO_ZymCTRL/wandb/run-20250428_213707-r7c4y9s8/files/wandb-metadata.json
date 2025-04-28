@@ -1,0 +1,61 @@
+{
+  "os": "Linux-6.1.132-147.221.amzn2023.x86_64-x86_64-with-glibc2.34",
+  "python": "CPython 3.12.6",
+  "startedAt": "2025-04-28T21:37:07.315937Z",
+  "args": [
+    "--model_name",
+    "AI4PD/ZymCTRL",
+    "--train_data",
+    "/home/ec2-user/prot-rl/DPO_ZymCTRL/training_data_iteration0/sequences.csv",
+    "--val_data",
+    "/home/ec2-user/prot-rl/DPO_ZymCTRL/training_data_iteration0/sequences.csv",
+    "--batch_size",
+    "4",
+    "--learning_rate",
+    "1e-5",
+    "--num_epochs",
+    "3",
+    "--gradient_accumulation_steps",
+    "4",
+    "--max_length",
+    "512",
+    "--dpo_mode"
+  ],
+  "program": "/home/ec2-user/prot-rl/DPO_ZymCTRL/lightning_trainer.py",
+  "codePath": "DPO_ZymCTRL/lightning_trainer.py",
+  "git": {
+    "remote": "https://github.com/nahummaru/prot-rl.git",
+    "commit": "f526c4aaba343a8b0dbdb7e075f495458d485395"
+  },
+  "email": "nahummaru1@gmail.com",
+  "root": ".",
+  "host": "ip-172-31-3-201.us-west-1.compute.internal",
+  "executable": "/opt/pytorch/bin/python",
+  "codePathLocal": "lightning_trainer.py",
+  "cpu_count": 4,
+  "cpu_count_logical": 8,
+  "gpu": "Tesla T4",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "107294470144",
+      "used": "50368753664"
+    }
+  },
+  "memory": {
+    "total": "33254735872"
+  },
+  "cpu": {
+    "count": 4,
+    "countLogical": 8
+  },
+  "gpu_nvidia": [
+    {
+      "name": "Tesla T4",
+      "memoryTotal": "16106127360",
+      "cudaCores": 2560,
+      "architecture": "Turing"
+    }
+  ],
+  "cudaVersion": "12.8"
+}
