@@ -222,7 +222,6 @@ def stability_score(
         logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol")
         results.append((raw_if, dg))
 
-    import pdb; pdb.set_trace()
     return results
 
 # -----------------------------------------------------------------------------

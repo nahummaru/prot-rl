@@ -1,7 +1,7 @@
 import os
 import torch
 import pytorch_lightning as pl
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from transformers import GPT2LMHeadModel, AutoTokenizer, get_linear_schedule_with_warmup
 from typing import Dict, Optional, Union, List
 import wandb
@@ -11,77 +11,10 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import torch.nn.functional as F
 import pandas as pd
 from pathlib import Path
+from dataset import ZymCTRLDataset
+import random
+import logging
 
-
-# NOTE: This v0 versino of this. 
-class ZymCTRLDataset(Dataset):
-    def __init__(
-        self,
-        data_path: str,
-        tokenizer,
-        max_length: int = 512,
-        training_mode: str = "sft"
-    ):
-        self.tokenizer = tokenizer
-
-        import pdb; pdb.set_trace()
-        # Set up padding token if not set. 
-        # NOTE: Make sure that this is not problematic. Could be issue for DPO paired data where samples are diff lengths
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-            
-        self.max_length = max_length
-        self.training_mode = training_mode
-        
-        # Load data
-        self.data = pd.read_csv(data_path)
-        
-        if training_mode == "dpo":
-            # TODO: Process data to create paired sequences for DPO. 
-            # For DPO, we expect columns: sequence, stability_score
-
-            # Notes: 
-            # For DPO, we will create paried sequences.
-            # It will contrast a high stability sequence with a low stability sequence.
-
-            assert "sequence" in self.data.columns
-            assert "stability_score" in self.data.columns
-            
-            # Convert stability scores to weights for DPO
-            self.weights = torch.tensor(self.data["stability_score"].values, dtype=torch.float32)
-        else:
-            # For SFT, we just need the sequence column
-
-            # NOTES:
-            # For SFT, we will select the most stable and least stable sequences for training.
-            # We then create an input with a corresponding control tag <stability=high> or <stability=low>
-            # We can then train the model so that it learns to conditionally generate enzymes with the correct stability.
-
-            assert "sequence" in self.data.columns
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        sequence = self.data["sequence"].iloc[idx]
-        
-        # Tokenize sequence
-        inputs = self.tokenizer(
-            sequence,
-            max_length=self.max_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt"
-        )
-        
-        # Squeeze out the batch dimension since DataLoader will handle batching
-        inputs = {k: v.squeeze(0) for k, v in inputs.items()}
-        
-        if self.training_mode == "dpo":
-            # For DPO, include the weight
-            inputs["weight"] = self.weights[idx]
-            
-        return inputs
 
 class ZymCTRLModule(pl.LightningModule):
     def __init__(
@@ -92,7 +25,9 @@ class ZymCTRLModule(pl.LightningModule):
         warmup_steps: int = 100,
         beta: float = 0.1,
         training_mode: str = "sft",
-        max_length: int = 512
+        max_length: int = 512,
+        use_weighted_dpo: bool = False,
+        weight_scale: float = 1.0
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -108,6 +43,13 @@ class ZymCTRLModule(pl.LightningModule):
         if self.model.config.pad_token_id is None:
             self.model.config.pad_token_id = self.tokenizer.pad_token_id
         
+        # Memory optimizations
+        self.model.config.use_cache = False  # Disable KV cache for training
+        self.model.gradient_checkpointing_enable()
+        
+        # Ensure model is in training mode
+        self.model.train()
+        
         # Training params
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
@@ -115,6 +57,8 @@ class ZymCTRLModule(pl.LightningModule):
         self.beta = beta
         self.training_mode = training_mode
         self.max_length = max_length
+        self.use_weighted_dpo = use_weighted_dpo
+        self.weight_scale = weight_scale
 
     def forward(self, **inputs):
         return self.model(**inputs)
@@ -122,19 +66,28 @@ class ZymCTRLModule(pl.LightningModule):
     def _compute_loss(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """Compute the appropriate loss based on the mode"""
         if self.training_mode == "sft":
-            # Standard language modeling loss
-            outputs = self.model(**batch)
+            # Move tensors to device and pass to model
+            outputs = self.model(
+                input_ids=batch['input_ids'],
+                attention_mask=batch['attention_mask'],
+                labels=batch['labels']
+            )
             return outputs.loss
         else:
             # DPO loss
             return self._dpo_step(batch)
 
     def training_step(self, batch, batch_idx):
+        # Ensure we're in training mode
+        self.model.train()
         loss = self._compute_loss(batch)
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         return loss
 
+    @torch.no_grad()
     def validation_step(self, batch, batch_idx):
+        # Explicitly set eval mode for validation
+        self.model.eval()
         loss = self._compute_loss(batch)
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
         return loss
@@ -161,25 +114,38 @@ class ZymCTRLModule(pl.LightningModule):
         return torch.cat(all_log_probs)
 
     def _dpo_step(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        if "chosen" in batch and "rejected" in batch:
-            # Paired DPO
-            policy_chosen = self._compute_logprobs(batch["chosen"])
-            policy_rejected = self._compute_logprobs(batch["rejected"])
+        # Get policy and reference outputs
+        chosen_outputs = self.model(
+            input_ids=batch["chosen"]["input_ids"].to(self.device),
+            attention_mask=batch["chosen"]["attention_mask"].to(self.device),
+            labels=batch["chosen"]["labels"].to(self.device)
+        )
+        rejected_outputs = self.model(
+            input_ids=batch["rejected"]["input_ids"].to(self.device),
+            attention_mask=batch["rejected"]["attention_mask"].to(self.device),
+            labels=batch["rejected"]["labels"].to(self.device)
+        )
+        
+        # Compute log probabilities (negative loss is log probability)
+        policy_chosen = -chosen_outputs.loss
+        policy_rejected = -rejected_outputs.loss
+        
+        if self.use_weighted_dpo:
+            # Get stability scores
+            chosen_scores = batch["chosen"]["stability_score"].to(self.device)
+            rejected_scores = batch["rejected"]["stability_score"].to(self.device)
             
-            loss = -F.logsigmoid(self.beta * (policy_chosen - policy_rejected))
-            return torch.mean(loss)
-        else:
-            # Weighted DPO
-            sequences = batch["sequence"]
-            weights = batch["weight"].to(self.device)
-            policy_logprobs = self._compute_logprobs(sequences)
-            
-            # Normalize weights
-            weights = torch.softmax(weights, dim=0)
+            # Compute weights based on stability difference
+            # Note: abs() because the difference direction depends on prefer_stable
+            weights = torch.abs(chosen_scores - rejected_scores) * self.weight_scale
             
             # Compute weighted DPO loss
-            loss = F.cross_entropy(self.beta * policy_logprobs, weights)
-            return loss
+            loss = -weights * F.logsigmoid(self.beta * (policy_chosen - policy_rejected))
+        else:
+            # Standard DPO loss
+            loss = -F.logsigmoid(self.beta * (policy_chosen - policy_rejected))
+            
+        return torch.mean(loss)
 
     def configure_optimizers(self):
         # Set up optimizer
@@ -210,11 +176,14 @@ class ZymCTRLTrainer:
         model_name: str,
         output_dir: str = "checkpoints",
         learning_rate: float = 1e-5,
-        batch_size: int = 4,
+        batch_size: int = 1,
         gradient_accumulation_steps: int = 1,
         warmup_steps: int = 100,
         beta: float = 0.1,
         use_wandb: bool = False,
+        use_weighted_dpo: bool = False,
+        weight_scale: float = 1.0,
+        weight_decay: float = 0.01,
         **trainer_kwargs
     ):
         self.model_name = model_name
@@ -225,6 +194,9 @@ class ZymCTRLTrainer:
         self.warmup_steps = warmup_steps
         self.beta = beta
         self.use_wandb = use_wandb
+        self.use_weighted_dpo = use_weighted_dpo
+        self.weight_scale = weight_scale
+        self.weight_decay = weight_decay
         self.trainer_kwargs = trainer_kwargs
         
         os.makedirs(output_dir, exist_ok=True)
@@ -242,8 +214,11 @@ class ZymCTRLTrainer:
             model_name=self.model_name,
             learning_rate=self.learning_rate,
             warmup_steps=self.warmup_steps,
+            weight_decay=self.weight_decay,
             beta=self.beta,
-            training_mode=training_mode
+            training_mode=training_mode,
+            use_weighted_dpo=self.use_weighted_dpo,
+            weight_scale=self.weight_scale
         )
         
         # Create dataloaders
@@ -277,18 +252,26 @@ class ZymCTRLTrainer:
         callbacks = [
             ModelCheckpoint(
                 dirpath=self.output_dir,
-                filename="{epoch}-{val_loss:.2f}",
+                filename="{epoch}-{" + ("val_loss" if val_dataset else "train_loss") + ":.2f}",
                 save_top_k=3,
-                monitor="val_loss",
+                monitor="val_loss" if val_dataset else "train_loss",
                 mode="min"
             ),
-            LearningRateMonitor(logging_interval="step"),
-            EarlyStopping(
-                monitor="val_loss",
-                patience=3,
-                mode="min"
-            )
         ]
+
+        # Add early stopping only if we have validation data
+        if val_dataset:
+            callbacks.append(
+                EarlyStopping(
+                    monitor="val_loss",
+                    patience=3,
+                    mode="min"
+                )
+            )
+
+        # Only add LearningRateMonitor if we have a logger
+        if loggers:
+            callbacks.append(LearningRateMonitor(logging_interval="step"))
         
         # Create trainer
         trainer = pl.Trainer(
@@ -299,6 +282,7 @@ class ZymCTRLTrainer:
             logger=loggers,
             callbacks=callbacks,
             gradient_clip_val=1.0,
+            precision="bf16-mixed",  # Enable mixed precision training with float16
             **self.trainer_kwargs
         )
         
@@ -321,13 +305,13 @@ def main():
                         help='Path to training data CSV')
     parser.add_argument('--val_data', type=str,
                         help='Path to validation data CSV')
-    parser.add_argument('--batch_size', type=int, default=4,
+    parser.add_argument('--batch_size', type=int, default=1,
                         help='Training batch size')
     parser.add_argument('--learning_rate', type=float, default=1e-5,
                         help='Learning rate')
     parser.add_argument('--num_epochs', type=int, default=3,
                         help='Number of training epochs')
-    parser.add_argument('--gradient_accumulation_steps', type=int, default=4,
+    parser.add_argument('--gradient_accumulation_steps', type=int, default=8,
                         help='Number of gradient accumulation steps')
     parser.add_argument('--output_dir', type=str, default="checkpoints",
                         help='Directory to save checkpoints')
@@ -335,6 +319,14 @@ def main():
                         help='Training mode: sft or dpo')
     parser.add_argument('--beta', type=float, default=0.1,
                         help='Beta parameter for DPO loss')
+    parser.add_argument('--use_weighted_dpo', action='store_true',
+                        help='Use weighted DPO with stability score differences as weights')
+    parser.add_argument('--weight_scale', type=float, default=1.0,
+                        help='Scaling factor for stability difference weights in weighted DPO')
+    parser.add_argument('--warmup_steps', type=int, default=100,
+                        help='Number of warmup steps for learning rate scheduler')
+    parser.add_argument('--weight_decay', type=float, default=0.01,
+                        help='Weight decay for AdamW optimizer')
     parser.add_argument('--no_wandb', action='store_true',
                         help='Disable Weights & Biases logging')
     parser.add_argument('--max_length', type=int, default=512,
@@ -343,6 +335,8 @@ def main():
                         help='Tag for the training data')
     parser.add_argument('--iteration_num', type=int, default=0,
                         help='Iteration number for the training data')
+    parser.add_argument('--stability_threshold', type=float, default=1.0,
+                        help='Minimum stability score difference for DPO pairs')
     
     args = parser.parse_args()
     
@@ -354,7 +348,11 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         output_dir=args.output_dir,
         beta=args.beta,
-        use_wandb=not args.no_wandb
+        use_wandb=not args.no_wandb,
+        use_weighted_dpo=args.use_weighted_dpo,
+        weight_scale=args.weight_scale,
+        warmup_steps=args.warmup_steps,
+        weight_decay=args.weight_decay
     )
     
     # Initialize tokenizer for dataset
@@ -365,7 +363,8 @@ def main():
         data_path=args.train_data,
         tokenizer=tokenizer,
         max_length=args.max_length,
-        training_mode=args.training_mode
+        training_mode=args.training_mode,
+        stability_threshold=args.stability_threshold
     )
     
     val_dataset = None
@@ -374,7 +373,8 @@ def main():
             data_path=args.val_data,
             tokenizer=tokenizer,
             max_length=args.max_length,
-            training_mode=args.training_mode
+            training_mode=args.training_mode,
+            stability_threshold=args.stability_threshold
         )
     
     # Train model
