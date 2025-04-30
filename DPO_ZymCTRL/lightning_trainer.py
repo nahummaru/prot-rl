@@ -240,7 +240,7 @@ class ZymCTRLTrainer:
         # Set up logging
         loggers = []
         # TODO: Remove this. Figure out how to turn off wandb logging by cmd line
-        if self.use_wandb and False:
+        if self.use_wandb:
             wandb_logger = WandbLogger(
                 project="zymctrl-training",
                 name=run_name,
