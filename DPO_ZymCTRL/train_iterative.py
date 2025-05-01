@@ -11,7 +11,7 @@ WORK IN PROGRESS: THIS WILL BECOME THE MAIN TRAINING SCRIPT. RUN ONLINE TRAINING
 def run_data_generation(iteration, ec_label, n_sequences, tag="", model_path=None):
     """Run the data generation script for current iteration"""
     # Calculate batches needed (assuming 2 sequences per batch from generate_training_data.py)
-    n_batches = n_sequences // 2
+    n_batches = n_sequences
     
     cmd = [
         "python", "generate_training_data.py",
@@ -38,7 +38,8 @@ def run_model_training(iteration, train_data_path, training_mode="dpo", tag="", 
     if model_path:
         base_model = model_path
     else:
-        base_model = f"output_iteration{iteration-1}" if iteration > 0 else "AI4PD/ZymCTRL"
+        # Use the HuggingFace format model from previous iteration
+        base_model = f"checkpoints_iteration{iteration-1}/hf_model" if iteration > 0 else "AI4PD/ZymCTRL"
     
     cmd = [
         "python", "lightning_trainer.py",
@@ -73,6 +74,7 @@ def run_model_training(iteration, train_data_path, training_mode="dpo", tag="", 
     print(f"- Epochs: {num_epochs}")
     print(f"- Warmup steps: {warmup_steps}")
     print(f"- Weight decay: {weight_decay}")
+    print(f"- Stability threshold: {stability_threshold}")
     subprocess.run(cmd, check=True)
 
 def main():
@@ -177,7 +179,7 @@ def main():
         # Update current model path for next iteration if using checkpoints
         if args.checkpoint_freq > 0 and (i + 1) % args.checkpoint_freq == 0:
             checkpoint_dir = f"checkpoints_iteration{i}" + (f"_{args.tag}" if args.tag else "")
-            current_model = checkpoint_dir  # Will use latest checkpoint from this directory
+            current_model = os.path.join(checkpoint_dir, "hf_model")  # Use the HF model directory
         
         print(f"\n=== Completed Iteration {i} ===")
         
