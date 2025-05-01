@@ -188,6 +188,9 @@ if __name__ == '__main__':
 
     output_dir = f"training_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
 
+    # Make this directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
     # Save sequences to file 
     with open(f"{output_dir}/sequences.json", "w") as f:
         json.dump(all_sequences, f)

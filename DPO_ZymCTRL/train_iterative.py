@@ -150,8 +150,8 @@ def main():
         print(f"\n=== Starting Iteration {i} ===")
         
         # Generate new data using current model
-        run_data_generation(i, args.ec_label, args.sequences_per_iteration, args.tag, current_model)
-        
+        # run_data_generation(i, args.ec_label, args.sequences_per_iteration, args.tag, current_model)
+
         # Get path to generated data
         data_dir = f"training_data_iteration{i}" + (f"_{args.tag}" if args.tag else "")
         train_data = os.path.join(data_dir, "sequences.csv")
