@@ -108,7 +108,6 @@ class ZymCTRLModule(pl.LightningModule):
         '''
         Computes perplexity differences between chosen and rejected sequences.
         '''
-        breakpoint()
         if self.training_mode == "dpo":
             chosen_logits = self.forward(batch["chosen"]["input_ids"])
             chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
