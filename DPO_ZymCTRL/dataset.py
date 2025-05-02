@@ -181,7 +181,8 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         
         # Select top 15% (most stable) and bottom 15% least stable sequences
         # This ensures we only train on clear examples of stable vs unstable
-        n_subset = int(0.15 * n_samples)
+        # n_subset = int(0.15 * n_samples)
+        n_subset = int(n_samples)
         top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
         bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
         

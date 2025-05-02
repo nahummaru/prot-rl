@@ -109,7 +109,7 @@ class ZymCTRLModule(pl.LightningModule):
         Computes perplexity differences between chosen and rejected sequences.
         '''
         if self.training_mode == "dpo":
-            chosen_logits = self.forward(batch["chosen"]["input_ids"])
+            chosen_logits = self.model.forward(batch["chosen"]["input_ids"]).logits
             chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
 
             # chosen_perplexity = calculatePerplexity(batch['chosen']['input_ids'], self.model, batch['chosen']['attention_mask'])
@@ -119,7 +119,7 @@ class ZymCTRLModule(pl.LightningModule):
 
             # Get perplexity for rejected sequence
 
-            rejected_logits = self.forward(batch["rejected"]["input_ids"])
+            rejected_logits = self.model.forward(batch["rejected"]["input_ids"]).logits
             rejected_perplexity = perplexity_from_logits(rejected_logits, batch["rejected"]["input_ids"], batch["rejected"]["attention_mask"])
 
             # rejected_perplexity = calculatePerplexity(batch['rejected']['input_ids'], self.model, batch['rejected']['attention_mask'])
@@ -427,7 +427,8 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         output_dir=args.output_dir,
         beta=args.beta,
-        use_wandb=not args.no_wandb,
+        # use_wandb=not args.no_wandb,
+        use_wandb=False,
         use_weighted_dpo=args.use_weighted_dpo,
         weight_scale=args.weight_scale,
         warmup_steps=args.warmup_steps,
