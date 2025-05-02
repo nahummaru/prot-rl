@@ -22,8 +22,6 @@ def calculatePerplexity(input_ids, model, tokenizer):
     '''
     Computes perplexities for the generated sequences. 
     '''
-    from pprint import pprint
-    pprint(input_ids)
     with torch.no_grad():
         # Ensure input_ids is 2D
         if input_ids.dim() == 1:
