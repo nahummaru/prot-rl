@@ -12,6 +12,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Underlying dataset
 class ZymCTRLDataset(Dataset):
     def __init__(
         self,
@@ -48,149 +49,6 @@ class ZymCTRLDataset(Dataset):
         assert "sequence" in self.data.columns, "sequence column required"
         assert "stability_score" in self.data.columns, "stability_score column required"
         assert "ec_label" in self.data.columns, "ec_label column required"
-        
-        if training_mode == "dpo":
-            # ===================== Pair Construction Logic =====================
-            # The goal is to create pairs of sequences with clear stability differences
-            # for training the DPO (Direct Preference Optimization) model.
-            #
-            # Process:
-            # 1. Sort all sequences by stability score (ascending, so most stable first — i.e. have lowest deltaG)
-            # 2. Take the top 15% most stable sequences and bottom 15% least stable sequences
-            # 3. Create pairs by matching each sequence from top 15% with each from bottom 15%
-            # 4. Filter pairs to ensure they meet minimum stability difference threshold
-            # 5. Randomly shuffle valid pairs
-            # 6. Split pairs into two equal groups:
-            #    - First half: prefer stable (chosen=stable, rejected=unstable)
-            #    - Second half: prefer unstable (chosen=unstable, rejected=stable)
-            #    This creates a balanced dataset where model learns both preferences
-            # ==============================================================
-            
-            # Sort data by stability score for easier pairing
-            # Note: Lower stability_score (deltaG) = more stable structure
-            sorted_data = self.data.sort_values('stability_score', ascending=True)
-            n_samples = len(sorted_data)
-            
-            # Select top 15% (most stable) and bottom 15% least stable sequences
-            # This ensures we only train on clear examples of stable vs unstable
-            n_subset = int(0.15 * n_samples)
-            top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
-            bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
-            
-            logger.info(f"Using top and bottom {n_subset} samples each (15% of total)")
-            logger.info(f"Stability ranges:")
-            logger.info(f"Top (most stable): {sorted_data.iloc[top_indices]['stability_score'].min():.2f} to {sorted_data.iloc[top_indices]['stability_score'].max():.2f}")
-            logger.info(f"Bottom (least stable): {sorted_data.iloc[bottom_indices]['stability_score'].min():.2f} to {sorted_data.iloc[bottom_indices]['stability_score'].max():.2f}")
-            
-            # Create pairs between top and bottom groups
-            # Each sequence from top 15% is paired with each sequence from bottom 15%
-            # if they meet the minimum stability difference threshold
-            valid_pairs = []
-            for i in top_indices:
-                for j in bottom_indices:
-                    diff = abs(sorted_data.iloc[j]['stability_score'] - sorted_data.iloc[i]['stability_score'])
-                    if diff >= self.stability_threshold:
-                        valid_pairs.append((i, j))
-            
-            if len(valid_pairs) == 0:
-                raise ValueError(f"No valid pairs found with stability difference >= {self.stability_threshold}. "
-                               f"Try lowering the threshold. Min difference: {sorted_data['stability_score'].max() - sorted_data['stability_score'].min():.2f}")
-            
-            logger.info(f"Found {len(valid_pairs)} valid pairs with sufficient stability difference")
-            
-            # Randomly sample pairs and randomly assign preference
-            random.shuffle(valid_pairs)
-            
-            # Create balanced dataset with both preference directions
-            n_pairs = len(valid_pairs) // 2  # We'll create balanced pairs
-            self.paired_data = []
-            
-            # First half of pairs: teach model to prefer stable sequences
-            # For these pairs, the more stable sequence (lower score) is marked as "chosen"
-            # and gets the "high" stability tag
-            for i in range(n_pairs):
-                idx1, idx2 = valid_pairs[i]
-                seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
-                if seq1['stability_score'] < seq2['stability_score']:  # Lower score = more stable
-                    chosen, rejected = seq1, seq2
-                else:
-                    chosen, rejected = seq2, seq1
-                    
-                self.paired_data.append({
-                    'chosen_sequence': chosen['sequence'],
-                    'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
-                    'rejected_sequence': rejected['sequence'],
-                    'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
-                    'chosen_score': chosen['stability_score'],
-                    'rejected_score': rejected['stability_score'],
-                    'ec_label': chosen['ec_label'],  # Both sequences have same EC number
-                    'prefer_stable': True
-                })
-            
-            # Second half of pairs: teach model to prefer unstable sequences
-            # For these pairs, the less stable sequence (higher score) is marked as "chosen"
-            # and gets the "low" stability tag
-            for i in range(n_pairs, min(2 * n_pairs, len(valid_pairs))):
-                idx1, idx2 = valid_pairs[i]
-                seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
-                if seq1['stability_score'] > seq2['stability_score']:  # Higher score = less stable
-                    chosen, rejected = seq1, seq2
-                else:
-                    chosen, rejected = seq2, seq1
-                    
-                self.paired_data.append({
-                    'chosen_sequence': chosen['sequence'],
-                    'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
-                    'rejected_sequence': rejected['sequence'],
-                    'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
-                    'chosen_score': chosen['stability_score'],
-                    'rejected_score': rejected['stability_score'],
-                    'ec_label': chosen['ec_label'],
-                    'prefer_stable': False
-                })
-            
-            # Convert to DataFrame for easier indexing
-            self.paired_data = pd.DataFrame(self.paired_data)
-            logger.info(f"Created {len(self.paired_data)} paired samples")
-            logger.info(f"Number of prefer_stable=True: {sum(self.paired_data['prefer_stable'])}")
-            
-            # Log some statistics about the pairs
-            score_diffs = abs(self.paired_data['chosen_score'] - self.paired_data['rejected_score'])
-            logger.info(f"Average stability difference in pairs: {score_diffs.mean():.2f}")
-            logger.info(f"Min stability difference in pairs: {score_diffs.min():.2f}")
-            logger.info(f"Max stability difference in pairs: {score_diffs.max():.2f}")
-            
-        else:  # SFT mode
-            # Sort data by stability score - ascending for stability (lower = more stable)
-            sorted_data = self.data.sort_values('stability_score', ascending=True)
-            n_samples = len(sorted_data)
-            n_subset = int(0.15 * n_samples)
-            logger.info(f"Creating subsets with {n_subset} samples each (15% of total)")
-
-            # Select top 15% (most stable), middle 15%, and bottom 15% (least stable)
-            top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
-            mid_start = n_samples // 2 - n_subset // 2
-            middle_indices = list(range(mid_start, mid_start + n_subset))
-            bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
-
-            # Log stability ranges for each group
-            logger.info("Stability ranges for each group:")
-            logger.info(f"High stability (lowest deltaG): {sorted_data.iloc[top_indices]['stability_score'].min():.2f} to {sorted_data.iloc[top_indices]['stability_score'].max():.2f}")
-            logger.info(f"Medium stability: {sorted_data.iloc[middle_indices]['stability_score'].min():.2f} to {sorted_data.iloc[middle_indices]['stability_score'].max():.2f}")
-            logger.info(f"Low stability (highest deltaG): {sorted_data.iloc[bottom_indices]['stability_score'].min():.2f} to {sorted_data.iloc[bottom_indices]['stability_score'].max():.2f}")
-
-            # Store the indices and their corresponding stability levels
-            self.sample_indices = []
-            for idx in top_indices:
-                self.sample_indices.append((idx, 'high'))  # Most stable = high stability
-            for idx in middle_indices:
-                self.sample_indices.append((idx, 'medium'))
-            for idx in bottom_indices:
-                self.sample_indices.append((idx, 'low'))  # Least stable = low stability
-                
-            # Store sorted data for easy access during training
-            self.sorted_data = sorted_data
-            logger.info(f"Created {len(self.sample_indices)} total samples")
 
     def __len__(self):
         if self.training_mode == "sft":
@@ -205,86 +63,274 @@ class ZymCTRLDataset(Dataset):
         return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
 
     def __getitem__(self, idx):
-        if self.training_mode == "dpo":
-            pair = self.paired_data.iloc[idx]
-            
-            # Log every 1000th sample for monitoring
-            if idx % 1000 == 0:
-                logger.debug(f"DPO Sample {idx}:")
-                logger.debug(f"Prefer stable: {pair['prefer_stable']}")
-                logger.debug(f"Chosen score: {pair['chosen_score']:.2f}")
-                logger.debug(f"Rejected score: {pair['rejected_score']:.2f}")
-                logger.debug(f"Score difference: {abs(pair['chosen_score'] - pair['rejected_score']):.2f}")
-            
-            # Construct prompts with stability control tags
-            stability_tag = 'high' if pair['prefer_stable'] else 'low'
-            chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], None) # to do fix
-            rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], None) # to do fix
-            
-            # Tokenize both sequences
-            chosen_inputs = self.tokenizer(
-                chosen_prompt,
-                max_length=self.max_length,
-                # padding="max_length",
-                truncation=True,
-                return_tensors="pt"
-            )
-            
-            rejected_inputs = self.tokenizer(
-                rejected_prompt,
-                max_length=self.max_length,
-                # padding="max_length",
-                truncation=True,
-                return_tensors="pt"
-            )
-            
-            # Return only the necessary fields for DPO
-            return {
-                "chosen": {
-                    "input_ids": chosen_inputs["input_ids"].squeeze(0),
-                    "attention_mask": chosen_inputs["attention_mask"].squeeze(0),
-                    "labels": chosen_inputs["input_ids"].squeeze(0).clone(), # to do: shift labels by 1
-                    "stability_score": torch.tensor(pair['chosen_score'], dtype=torch.float),
-                    "perplexity": torch.tensor(pair['chosen_perplexity'], dtype=torch.float) # we add perplexity for validation evals
-                },
-                "rejected": {
-                    "input_ids": rejected_inputs["input_ids"].squeeze(0),
-                    "attention_mask": rejected_inputs["attention_mask"].squeeze(0),
-                    "labels": rejected_inputs["input_ids"].squeeze(0).clone(),
-                    "stability_score": torch.tensor(pair['rejected_score'], dtype=torch.float),
-                    "perplexity": torch.tensor(pair['rejected_perplexity'], dtype=torch.float)
-                }
-            }
-            
-        else:  # SFT mode
-            # Get the sample index and stability level
-            data_idx, stability_level = self.sample_indices[idx]
-            sample = self.sorted_data.iloc[data_idx]
-            
-            # Log every 1000th sample for monitoring
-            if idx % 1000 == 0:
-                logger.debug(f"SFT Sample {idx}:")
-                logger.debug(f"Stability level: {stability_level}")
-                logger.debug(f"Stability score: {sample['stability_score']:.2f}")
-            
-            # Construct prompt using original ZymCTRL format
-            prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_level)
-            
-            # Tokenize prompt
-            inputs = self.tokenizer(
-                prompt,
-                max_length=self.max_length,
-                padding="max_length",
-                truncation=True,
-                return_tensors="pt"
-            )
+        raise NotImplementedError()
+        
+# SFT layer
+class ZymCTRLSFTDataset(ZymCTRLDataset):
+    def __init__(
+        self, **kwargs
+    ):
+        super().__init__(**kwargs)
+        logger.info(f"Initializing SFT ZymCTRLDataset.")
 
-            # NOTE: This attention mask is NOT causal. It only masks out the padding tokens.
-            # However, GPT2LMHeadModel automatically uses a causal attention mask. So we are chilling
+        # Sort data by stability score - ascending for stability (lower = more stable)
+        sorted_data = self.data.sort_values('stability_score', ascending=True)
+        n_samples = len(sorted_data)
+        n_subset = int(0.15 * n_samples)
+        logger.info(f"Creating subsets with {n_subset} samples each (15% of total)")
+
+        # Select top 15% (most stable), middle 15%, and bottom 15% (least stable)
+        top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
+        mid_start = n_samples // 2 - n_subset // 2
+        middle_indices = list(range(mid_start, mid_start + n_subset))
+        bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
+
+        # Log stability ranges for each group
+        logger.info("Stability ranges for each group:")
+        logger.info(f"High stability (lowest deltaG): {sorted_data.iloc[top_indices]['stability_score'].min():.2f} to {sorted_data.iloc[top_indices]['stability_score'].max():.2f}")
+        logger.info(f"Medium stability: {sorted_data.iloc[middle_indices]['stability_score'].min():.2f} to {sorted_data.iloc[middle_indices]['stability_score'].max():.2f}")
+        logger.info(f"Low stability (highest deltaG): {sorted_data.iloc[bottom_indices]['stability_score'].min():.2f} to {sorted_data.iloc[bottom_indices]['stability_score'].max():.2f}")
+
+        # Store the indices and their corresponding stability levels
+        self.sample_indices = []
+        for idx in top_indices:
+            self.sample_indices.append((idx, 'high'))  # Most stable = high stability
+        for idx in middle_indices:
+            self.sample_indices.append((idx, 'medium'))
+        for idx in bottom_indices:
+            self.sample_indices.append((idx, 'low'))  # Least stable = low stability
             
-            # Return only the necessary fields for the model
-            return {
-                "input_ids": inputs["input_ids"].squeeze(0),
-                "attention_mask": inputs["attention_mask"].squeeze(0),
-                "labels": inputs["input_ids"].squeeze(0).clone()
-            } 
+        # Store sorted data for easy access during training
+        self.sorted_data = sorted_data
+        logger.info(f"Created {len(self.sample_indices)} total samples")
+
+    def __len__(self):
+        return len(self.sample_indices)
+
+    def _format_sequence(self, ec_label: str, sequence: str, stability_level: Optional[str] = None) -> str:
+        return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
+
+    def __getitem__(self, idx):
+        # Get the sample index and stability level
+        data_idx, stability_level = self.sample_indices[idx]
+        sample = self.sorted_data.iloc[data_idx]
+        
+        # Log every 1000th sample for monitoring
+        if idx % 1000 == 0:
+            logger.debug(f"SFT Sample {idx}:")
+            logger.debug(f"Stability level: {stability_level}")
+            logger.debug(f"Stability score: {sample['stability_score']:.2f}")
+        
+        # Construct prompt using original ZymCTRL format
+        prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_level)
+        
+        # Tokenize prompt
+        inputs = self.tokenizer(
+            prompt,
+            max_length=self.max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+
+        # NOTE: This attention mask is NOT causal. It only masks out the padding tokens.
+        # However, GPT2LMHeadModel automatically uses a causal attention mask. So we are chilling
+        
+        # Return only the necessary fields for the model
+        return {
+            "input_ids": inputs["input_ids"].squeeze(0),
+            "attention_mask": inputs["attention_mask"].squeeze(0),
+        } 
+
+# DPO layer
+class ZymCTRLDPODataset(ZymCTRLDataset):
+    def __init__(
+        self, **kwargs
+    ):
+        super().__init__(**kwargs)
+
+        logger.info(f"Initializing DPO ZymCTRLDataset.")
+            
+        # self.training_mode = training_mode
+        # self.stability_threshold = stability_threshold
+        # logger.info(f"Using stability threshold: {stability_threshold}")
+        
+        # Load data
+        # self.data = pd.read_csv(data_path)
+        # logger.info(f"Loaded {len(self.data)} sequences")
+        
+        # Log stability score distribution
+        # logger.info(f"Stability score range: {self.data['stability_score'].min():.2f} to {self.data['stability_score'].max():.2f}")
+        # logger.info(f"Stability score mean: {self.data['stability_score'].mean():.2f}")
+        # logger.info(f"Stability score std: {self.data['stability_score'].std():.2f}")
+        
+        # Verify required columns exist
+        # assert "sequence" in self.data.columns, "sequence column required"
+        # assert "stability_score" in self.data.columns, "stability_score column required"
+        # assert "ec_label" in self.data.columns, "ec_label column required"
+        
+        # ===================== Pair Construction Logic =====================
+        # The goal is to create pairs of sequences with clear stability differences
+        # for training the DPO (Direct Preference Optimization) model.
+        #
+        # Process:
+        # 1. Sort all sequences by stability score (ascending, so most stable first — i.e. have lowest deltaG)
+        # 2. Take the top 15% most stable sequences and bottom 15% least stable sequences
+        # 3. Create pairs by matching each sequence from top 15% with each from bottom 15%
+        # 4. Filter pairs to ensure they meet minimum stability difference threshold
+        # 5. Randomly shuffle valid pairs
+        # 6. Split pairs into two equal groups:
+        #    - First half: prefer stable (chosen=stable, rejected=unstable)
+        #    - Second half: prefer unstable (chosen=unstable, rejected=stable)
+        #    This creates a balanced dataset where model learns both preferences
+        # ==============================================================
+        
+        # Sort data by stability score for easier pairing
+        # Note: Lower stability_score (deltaG) = more stable structure
+        sorted_data = self.data.sort_values('stability_score', ascending=True)
+        n_samples = len(sorted_data)
+        
+        # Select top 15% (most stable) and bottom 15% least stable sequences
+        # This ensures we only train on clear examples of stable vs unstable
+        n_subset = int(0.15 * n_samples)
+        top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
+        bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
+        
+        logger.info(f"Using top and bottom {n_subset} samples each (15% of total)")
+        logger.info(f"Stability ranges:")
+        logger.info(f"Top (most stable): {sorted_data.iloc[top_indices]['stability_score'].min():.2f} to {sorted_data.iloc[top_indices]['stability_score'].max():.2f}")
+        logger.info(f"Bottom (least stable): {sorted_data.iloc[bottom_indices]['stability_score'].min():.2f} to {sorted_data.iloc[bottom_indices]['stability_score'].max():.2f}")
+        
+        # Create pairs between top and bottom groups
+        # Each sequence from top 15% is paired with each sequence from bottom 15%
+        # if they meet the minimum stability difference threshold
+        valid_pairs = []
+        for i in top_indices:
+            for j in bottom_indices:
+                diff = abs(sorted_data.iloc[j]['stability_score'] - sorted_data.iloc[i]['stability_score'])
+                if diff >= self.stability_threshold:
+                    valid_pairs.append((i, j))
+        
+        if len(valid_pairs) == 0:
+            raise ValueError(f"No valid pairs found with stability difference >= {self.stability_threshold}. "
+                            f"Try lowering the threshold. Min difference: {sorted_data['stability_score'].max() - sorted_data['stability_score'].min():.2f}")
+        
+        logger.info(f"Found {len(valid_pairs)} valid pairs with sufficient stability difference")
+        
+        # Randomly sample pairs and randomly assign preference
+        random.shuffle(valid_pairs)
+        
+        # Create balanced dataset with both preference directions
+        n_pairs = len(valid_pairs) // 2  # We'll create balanced pairs
+        self.paired_data = []
+        
+        # First half of pairs: teach model to prefer stable sequences
+        # For these pairs, the more stable sequence (lower score) is marked as "chosen"
+        # and gets the "high" stability tag
+        for i in range(n_pairs):
+            idx1, idx2 = valid_pairs[i]
+            seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
+            if seq1['stability_score'] < seq2['stability_score']:  # Lower score = more stable
+                chosen, rejected = seq1, seq2
+            else:
+                chosen, rejected = seq2, seq1
+                
+            self.paired_data.append({
+                'chosen_sequence': chosen['sequence'],
+                'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
+                'rejected_sequence': rejected['sequence'],
+                'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
+                'chosen_score': chosen['stability_score'],
+                'rejected_score': rejected['stability_score'],
+                'ec_label': chosen['ec_label'],  # Both sequences have same EC number
+                'prefer_stable': True
+            })
+        
+        # Second half of pairs: teach model to prefer unstable sequences
+        # For these pairs, the less stable sequence (higher score) is marked as "chosen"
+        # and gets the "low" stability tag
+        for i in range(n_pairs, min(2 * n_pairs, len(valid_pairs))):
+            idx1, idx2 = valid_pairs[i]
+            seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
+            if seq1['stability_score'] > seq2['stability_score']:  # Higher score = less stable
+                chosen, rejected = seq1, seq2
+            else:
+                chosen, rejected = seq2, seq1
+                
+            self.paired_data.append({
+                'chosen_sequence': chosen['sequence'],
+                'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
+                'rejected_sequence': rejected['sequence'],
+                'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
+                'chosen_score': chosen['stability_score'],
+                'rejected_score': rejected['stability_score'],
+                'ec_label': chosen['ec_label'],
+                'prefer_stable': False
+            })
+        
+        # Convert to DataFrame for easier indexing
+        self.paired_data = pd.DataFrame(self.paired_data)
+        logger.info(f"Created {len(self.paired_data)} paired samples")
+        logger.info(f"Number of prefer_stable=True: {sum(self.paired_data['prefer_stable'])}")
+        
+        # Log some statistics about the pairs
+        score_diffs = abs(self.paired_data['chosen_score'] - self.paired_data['rejected_score'])
+        logger.info(f"Average stability difference in pairs: {score_diffs.mean():.2f}")
+        logger.info(f"Min stability difference in pairs: {score_diffs.min():.2f}")
+        logger.info(f"Max stability difference in pairs: {score_diffs.max():.2f}")
+
+    def __len__(self):
+        return len(self.paired_data)
+
+    def _format_sequence(self, ec_label: str, sequence: str, stability_level: str) -> str:
+        return f"{ec_label}<stability={stability_level}><sep><start>{sequence}<end><|endoftext|>"
+
+    def __getitem__(self, idx):
+        pair = self.paired_data.iloc[idx]
+        
+        # Log every 1000th sample for monitoring
+        if idx % 1000 == 0:
+            logger.debug(f"DPO Sample {idx}:")
+            logger.debug(f"Prefer stable: {pair['prefer_stable']}")
+            logger.debug(f"Chosen score: {pair['chosen_score']:.2f}")
+            logger.debug(f"Rejected score: {pair['rejected_score']:.2f}")
+            logger.debug(f"Score difference: {abs(pair['chosen_score'] - pair['rejected_score']):.2f}")
+        
+        # Construct prompts with stability control tags
+        stability_tag = 'high' if pair['prefer_stable'] else 'low'
+        chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], None) # to do fix
+        rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], None) # to do fix
+        
+        # Tokenize both sequences
+        chosen_inputs = self.tokenizer(
+            chosen_prompt,
+            max_length=self.max_length,
+            # padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        rejected_inputs = self.tokenizer(
+            rejected_prompt,
+            max_length=self.max_length,
+            # padding="max_length",
+            truncation=True,
+            return_tensors="pt"
+        )
+        
+        # Return only the necessary fields for DPO
+        return {
+            "chosen": {
+                "input_ids": chosen_inputs["input_ids"].squeeze(0),
+                "attention_mask": chosen_inputs["attention_mask"].squeeze(0),
+                "stability_score": torch.tensor(pair['chosen_score'], dtype=torch.float),
+                "perplexity": torch.tensor(pair['chosen_perplexity'], dtype=torch.float) # we add perplexity for validation evals
+            },
+            "rejected": {
+                "input_ids": rejected_inputs["input_ids"].squeeze(0),
+                "attention_mask": rejected_inputs["attention_mask"].squeeze(0),
+                "stability_score": torch.tensor(pair['rejected_score'], dtype=torch.float),
+                "perplexity": torch.tensor(pair['rejected_perplexity'], dtype=torch.float)
+            }
+        }
+    
