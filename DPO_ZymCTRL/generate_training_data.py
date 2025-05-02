@@ -52,7 +52,7 @@ def main(label, model, special_tokens, device, tokenizer):
         num_return_sequences=1,  
         temperature=0.9,  # Slightly reduce randomness
         no_repeat_ngram_size=3  # Prevent repetitive patterns
-    )  
+    ) 
     breakpoint()
     print(f"Generated {len(outputs)} raw sequences")
     
@@ -69,10 +69,10 @@ def main(label, model, special_tokens, device, tokenizer):
     for output in new_outputs:
         decoded_output = tokenizer.decode(output)
 
-        logits = model.forward(output)
+        logits = model.forward(output).logits
         ppl = perplexity_from_logits(logits, output, None)
 
-        ppls.append(decoded_output, ppl)
+        ppls.append((decoded_output, ppl))
 
     # Compute perplexity for every generated sequence in the batch
     # ppls = [(tokenizer.decode(output), calculatePerplexity(output, model)) 
@@ -201,7 +201,7 @@ if __name__ == '__main__':
     print(f"Loading {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
-    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>']
+    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>', ' ']
 
     # Generate sequences in batches
     all_sequences = {}
