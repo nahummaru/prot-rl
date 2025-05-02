@@ -15,6 +15,52 @@ from dataset import ZymCTRLDataset
 import random
 import logging
 
+import torch.nn.functional as F
+import torch
+
+# def perplexity_from_logits(logits: torch.Tensor,
+#                            labels: torch.Tensor,
+#                            attention_mask: torch.Tensor) -> torch.Tensor:
+#     """
+#     logits          : (B, L, V) – raw decoder outputs
+#     labels          : (B, L)     – token ids (usually same as input_ids)
+#     attention_mask  : (B, L)     – 1 for real tokens, 0 for padding
+
+#     Returns a scalar perplexity for the whole batch.
+#     """
+
+#     # GPT-style models predict token t given everything < t,
+#     # so predictions at position i are compared to label at i+1.
+#     shift_logits   = logits[:, :-1, :].contiguous()      # (B, L-1, V)
+#     shift_labels   = labels[:, 1:].contiguous()          # (B, L-1)
+#     shift_mask     = attention_mask[:, 1:]               # (B, L-1)
+
+#     # Step 1: log-probs
+#     log_probs = F.log_softmax(shift_logits, dim=-1)      # (B, L-1, V)
+
+#     # Step 2: gather log-prob of the true token
+#     #          -> (B, L-1)
+#     nll = -log_probs.gather(2, shift_labels.unsqueeze(-1)).squeeze(-1)
+
+#     # Step 3: mask padding, average, exponentiate
+#     nll = nll * shift_mask                               # zero-out pads
+#     mean_nll = nll.sum() / shift_mask.sum()              # average over real tokens
+#     ppl = torch.exp(mean_nll)
+
+#     return ppl
+
+def calculatePerplexity(input_ids, model, attention_mask):
+    import math
+    '''
+    Computes perplexities for the generated sequences. 
+    '''
+    with torch.no_grad():
+        # Ensure input_ids is 2D
+        if input_ids.dim() == 1:
+            input_ids = input_ids.unsqueeze(0)  # Add batch dimension
+        outputs = model(input_ids, labels=input_ids, attention_mask=attention_mask)
+    loss, logits = outputs[:2]
+    return math.exp(loss)
 
 class ZymCTRLModule(pl.LightningModule):
     def __init__(
@@ -70,12 +116,51 @@ class ZymCTRLModule(pl.LightningModule):
             outputs = self.model(
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
-                labels=batch['labels']
+                labels=batch['input_ids']
             )
             return outputs.loss
         else:
             # DPO loss
             return self._dpo_step(batch)
+    
+    def _compute_perplexity(self, batch: Dict[str, torch.Tensor]):
+        import math
+        '''
+        Computes perplexity differences between chosen and rejected sequences.
+        '''
+
+        if self.training_mode == "dpo":
+            breakpoint()
+            chosen_perplexity = calculatePerplexity(batch['chosen']['input_ids'], self.model, batch['chosen']['attention_mask'])
+            
+            print(f"PRE_DPO Chosen perplexity: {batch['chosen']['perplexity'].item()}")
+            print(f"POST_DPO Chosen perplexity: {chosen_perplexity}")
+
+            # Get perplexity for rejected sequence
+            rejected_perplexity = calculatePerplexity(batch['rejected']['input_ids'], self.model, batch['rejected']['attention_mask'])
+            
+            print(f"PRE_DPO Rejected perplexity: {batch['rejected']['perplexity'].item()}")
+            print(f"POST_DPO Rejected perplexity: {rejected_perplexity}")
+            
+            # Calculate differences from batch perplexities
+            chosen_diff = abs(chosen_perplexity - batch['chosen']['perplexity'].item())
+            rejected_diff = abs(rejected_perplexity - batch['rejected']['perplexity'].item())
+
+            print(f"Chosen diff: {chosen_diff}")
+            print(f"Rejected diff: {rejected_diff}")
+
+            return chosen_diff + rejected_diff
+        else:
+            outputs = self.model(
+                input_ids=batch['input_ids'],
+                attention_mask=batch['attention_mask'],
+                labels=batch['input_ids']
+            )
+            perplexity = math.exp(outputs.loss)
+
+            diff = abs(perplexity - batch['perplexity'].item())
+
+            return diff
 
     def training_step(self, batch, batch_idx):
         # Ensure we're in training mode
@@ -89,7 +174,9 @@ class ZymCTRLModule(pl.LightningModule):
         # Explicitly set eval mode for validation
         self.model.eval()
         loss = self._compute_loss(batch)
+        perplexity = self._compute_perplexity(batch)
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
+        self.log("perplexity", perplexity, prog_bar=True, sync_dist=True)
         return loss
 
     def _compute_logprobs(self, sequences: Union[str, List[str]]) -> torch.Tensor:
@@ -118,12 +205,12 @@ class ZymCTRLModule(pl.LightningModule):
         chosen_outputs = self.model(
             input_ids=batch["chosen"]["input_ids"].to(self.device),
             attention_mask=batch["chosen"]["attention_mask"].to(self.device),
-            labels=batch["chosen"]["labels"].to(self.device)
+            labels=batch["chosen"]["input_ids"].to(self.device)
         )
         rejected_outputs = self.model(
             input_ids=batch["rejected"]["input_ids"].to(self.device),
             attention_mask=batch["rejected"]["attention_mask"].to(self.device),
-            labels=batch["rejected"]["labels"].to(self.device)
+            labels=batch["rejected"]["input_ids"].to(self.device)
         )
         
         # Compute log probabilities (negative loss is log probability)
@@ -205,6 +292,7 @@ class ZymCTRLTrainer:
         self,
         train_dataset,
         val_dataset=None,
+        test_dataset=None,
         num_epochs: int = 3,
         run_name: Optional[str] = None,
         training_mode: str = "sft"

@@ -18,7 +18,7 @@ def remove_characters(sequence, char_list):
         seq = seq.replace(char, '')
     return seq
 
-def calculatePerplexity(input_ids, model, tokenizer):
+def calculatePerplexity(input_ids, model):
     '''
     Computes perplexities for the generated sequences. 
     '''
@@ -51,7 +51,7 @@ def main(label, model, special_tokens, device, tokenizer):
         temperature=0.9,  # Slightly reduce randomness
         no_repeat_ngram_size=3  # Prevent repetitive patterns
     )  
-    
+    breakpoint()
     print(f"Generated {len(outputs)} raw sequences")
     
     # Check sequence sanity, ensure sequences are properly terminated
@@ -64,7 +64,7 @@ def main(label, model, special_tokens, device, tokenizer):
     print(f"After filtering: {len(new_outputs)} valid sequences")
 
     # Compute perplexity for every generated sequence in the batch
-    ppls = [(tokenizer.decode(output), calculatePerplexity(output, model, tokenizer)) 
+    ppls = [(tokenizer.decode(output), calculatePerplexity(output, model)) 
             for output in new_outputs]
 
     # Sort the batch by perplexity, the lower the better
@@ -170,6 +170,8 @@ if __name__ == '__main__':
     parser.add_argument("--tag", type=str, default="")
     parser.add_argument("--model_path", type=str, default="",
                       help="Optional: Path to specific model checkpoint to use. If not provided, uses iteration-based loading.")
+    parser.add_argument("--data_type", type=str, default="train", choices=["train", "val"],
+                      help="Specify whether this is training or validation data. Affects output directory prefix.")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -186,7 +188,7 @@ if __name__ == '__main__':
     print(f"Loading {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
-    special_tokens = ['<start>', '<end>', '<|endoftext|>','<pad>',' ', '<sep>']
+    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>']
 
     # Generate sequences in batches
     all_sequences = {}
@@ -202,9 +204,12 @@ if __name__ == '__main__':
         # Clear GPU memory after each batch
         torch.cuda.empty_cache()
 
-    output_dir = f"training_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
-    
-    # Create output directory if it doesn't exist
+    if args.data_type == "train":
+        output_dir = f"train_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
+    else:  # val
+        output_dir = f"val_data" + (f"_{args.tag}" if args.tag else "")
+
+    # Make this directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
 
     # Save sequences to file 

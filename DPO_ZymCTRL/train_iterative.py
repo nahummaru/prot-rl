@@ -27,7 +27,7 @@ def run_data_generation(iteration, ec_label, n_sequences, tag="", model_path=Non
     print(f"Using model: {model_path if model_path else 'default'}")
     subprocess.run(cmd, check=True)
 
-def run_model_training(iteration, train_data_path, training_mode="dpo", tag="", model_path=None, 
+def run_model_training(iteration, train_data_path, val_data_path, training_mode="dpo", tag="", model_path=None, 
                       use_weighted_dpo=False, weight_scale=1.0, stability_threshold=1.0,
                       batch_size=1, gradient_accumulation_steps=8, learning_rate=1e-5,
                       num_epochs=3, warmup_steps=100, weight_decay=0.01):
@@ -44,6 +44,7 @@ def run_model_training(iteration, train_data_path, training_mode="dpo", tag="", 
     cmd = [
         "python", "lightning_trainer.py",
         "--model_name", base_model,
+        "--val_data", val_data_path,
         "--train_data", train_data_path,
         "--batch_size", str(batch_size),
         "--gradient_accumulation_steps", str(gradient_accumulation_steps),
@@ -152,16 +153,21 @@ def main():
         print(f"\n=== Starting Iteration {i} ===")
         
         # Generate new data using current model
-        run_data_generation(i, args.ec_label, args.sequences_per_iteration, args.tag, current_model)
-        
+        # run_data_generation(i, args.ec_label, args.sequences_per_iteration, args.tag, current_model)
+
         # Get path to generated data
         data_dir = f"training_data_iteration{i}" + (f"_{args.tag}" if args.tag else "")
         train_data = os.path.join(data_dir, "sequences.csv")
+
+        # Get validation data
+        val_data_dir = "val_data"
+        val_data = os.path.join(val_data_dir, "sequences.csv")
         
         # Train model on new data
         run_model_training(
             iteration=i,
             train_data_path=train_data,
+            val_data_path=val_data,
             training_mode=args.training_mode,
             tag=args.tag,
             model_path=current_model,
