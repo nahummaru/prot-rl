@@ -18,36 +18,7 @@ import logging
 import torch.nn.functional as F
 import torch
 
-# def perplexity_from_logits(logits: torch.Tensor,
-#                            labels: torch.Tensor,
-#                            attention_mask: torch.Tensor) -> torch.Tensor:
-#     """
-#     logits          : (B, L, V) – raw decoder outputs
-#     labels          : (B, L)     – token ids (usually same as input_ids)
-#     attention_mask  : (B, L)     – 1 for real tokens, 0 for padding
-
-#     Returns a scalar perplexity for the whole batch.
-#     """
-
-#     # GPT-style models predict token t given everything < t,
-#     # so predictions at position i are compared to label at i+1.
-#     shift_logits   = logits[:, :-1, :].contiguous()      # (B, L-1, V)
-#     shift_labels   = labels[:, 1:].contiguous()          # (B, L-1)
-#     shift_mask     = attention_mask[:, 1:]               # (B, L-1)
-
-#     # Step 1: log-probs
-#     log_probs = F.log_softmax(shift_logits, dim=-1)      # (B, L-1, V)
-
-#     # Step 2: gather log-prob of the true token
-#     #          -> (B, L-1)
-#     nll = -log_probs.gather(2, shift_labels.unsqueeze(-1)).squeeze(-1)
-
-#     # Step 3: mask padding, average, exponentiate
-#     nll = nll * shift_mask                               # zero-out pads
-#     mean_nll = nll.sum() / shift_mask.sum()              # average over real tokens
-#     ppl = torch.exp(mean_nll)
-
-#     return ppl
+from utils import perplexity_from_logits
 
 def calculatePerplexity(input_ids, model, attention_mask):
     import math
@@ -139,13 +110,20 @@ class ZymCTRLModule(pl.LightningModule):
         '''
 
         if self.training_mode == "dpo":
-            chosen_perplexity = calculatePerplexity(batch['chosen']['input_ids'], self.model, batch['chosen']['attention_mask'])
+            chosen_logits = self.forward(batch["chosen"]["input_ids"])
+            chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
+
+            # chosen_perplexity = calculatePerplexity(batch['chosen']['input_ids'], self.model, batch['chosen']['attention_mask'])
             
             print(f"PRE_DPO Chosen perplexity: {batch['chosen']['perplexity'].item()}")
             print(f"POST_DPO Chosen perplexity: {chosen_perplexity}")
 
             # Get perplexity for rejected sequence
-            rejected_perplexity = calculatePerplexity(batch['rejected']['input_ids'], self.model, batch['rejected']['attention_mask'])
+
+            rejected_logits = self.forward(batch["rejected"]["input_ids"])
+            rejected_perplexity = perplexity_from_logits(rejected_logits, batch["rejected"]["input_ids"], batch["rejected"]["attention_mask"])
+
+            # rejected_perplexity = calculatePerplexity(batch['rejected']['input_ids'], self.model, batch['rejected']['attention_mask'])
             
             print(f"PRE_DPO Rejected perplexity: {batch['rejected']['perplexity'].item()}")
             print(f"POST_DPO Rejected perplexity: {rejected_perplexity}")

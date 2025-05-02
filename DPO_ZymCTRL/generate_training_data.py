@@ -5,6 +5,8 @@ import pandas as pd
 from tqdm import tqdm
 import json
 
+from utils import perplexity_from_logits
+
 # Configure PyTorch memory management to avoid fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
@@ -63,14 +65,25 @@ def main(label, model, special_tokens, device, tokenizer):
 
     print(f"After filtering: {len(new_outputs)} valid sequences")
 
+    ppls = []
+    for output in new_outputs:
+        decoded_output = tokenizer.decode(output)
+
+        logits = model.forward(output)
+        ppl = perplexity_from_logits(logits, output, None)
+
+        ppls.append(decoded_output, ppl)
+
     # Compute perplexity for every generated sequence in the batch
-    ppls = [(tokenizer.decode(output), calculatePerplexity(output, model)) 
-            for output in new_outputs]
+    # ppls = [(tokenizer.decode(output), calculatePerplexity(output, model)) 
+    #         for output in new_outputs]
 
     # Sort the batch by perplexity, the lower the better
     ppls.sort(key=lambda i:i[1]) 
 
     # Final results dictionary without strange characters
+    # TODO parsing out special tokens here feels weird. If we're using the same
+    # tokenizer for encoding/decoding, shouldn't things remain consistent?
     sequences = {}
     sequences[label] = [(remove_characters(x[0], special_tokens), x[1]) for x in ppls]
 
