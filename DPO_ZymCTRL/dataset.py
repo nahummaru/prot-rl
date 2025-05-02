@@ -59,7 +59,7 @@ class ZymCTRLDataset(Dataset):
 
     # Interfaces that child classes need to define
     def __len__(self):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     def __getitem__(self, idx):
         raise NotImplementedError()

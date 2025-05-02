@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import torch.nn.functional as F
 import pandas as pd
 from pathlib import Path
-from dataset import ZymCTRLDataset
+from dataset import ZymCTRLDataset, ZymCTRLSFTDataset, ZymCTRLDPODataset
 import random
 import logging
 
@@ -108,7 +108,7 @@ class ZymCTRLModule(pl.LightningModule):
         '''
         Computes perplexity differences between chosen and rejected sequences.
         '''
-
+        breakpoint()
         if self.training_mode == "dpo":
             chosen_logits = self.forward(batch["chosen"]["input_ids"])
             chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
@@ -448,8 +448,9 @@ def main():
     }
     tokenizer.add_special_tokens(special_tokens_dict)
     
+    dataset_type = ZymCTRLSFTDataset if args.training_mode == "sft" else ZymCTRLDPODataset
     # Load datasets
-    train_dataset = ZymCTRLDataset(
+    train_dataset = dataset_type(
         data_path=args.train_data,
         tokenizer=tokenizer,
         max_length=args.max_length,
@@ -459,7 +460,7 @@ def main():
     
     val_dataset = None
     if args.val_data:
-        val_dataset = ZymCTRLDataset(
+        val_dataset = dataset_type(
             data_path=args.val_data,
             tokenizer=tokenizer,
             max_length=args.max_length,
