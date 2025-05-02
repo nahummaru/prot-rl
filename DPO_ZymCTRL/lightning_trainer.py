@@ -18,6 +18,8 @@ import logging
 import torch.nn.functional as F
 import torch
 
+import math
+
 from utils import perplexity_from_logits
 
 def calculatePerplexity(input_ids, model, attention_mask):
@@ -103,8 +105,27 @@ class ZymCTRLModule(pl.LightningModule):
             # DPO loss
             return self._dpo_step(batch)
     
+    def _compute_base_perplexity(self, batch: Dict[str, torch.Tensor]):
+        base_model = GPT2LMHeadModel.from_pretrained("AI4PD/ZymCTRL")
+        if self.training_mode == "dpo":
+            chosen_logits = base_model.forward(input_ids=batch["chosen"]["input_ids"], attention_mask=batch["chosen"]["attention_mask"]).logits
+            chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
+
+            rejected_logits = base_model.forward(input_ids=batch["rejected"]["input_ids"], attention_mask=batch["rejected"]["attention_mask"]).logits
+            rejected_perplexity = perplexity_from_logits(rejected_logits, batch["rejected"]["input_ids"], batch["rejected"]["attention_mask"])
+
+            return chosen_perplexity, rejected_perplexity
+        else:
+            outputs = base_model.model(
+                input_ids=batch['input_ids'],
+                attention_mask=batch['attention_mask'],
+                labels=batch['input_ids']
+            )
+            perplexity = math.exp(outputs.loss)
+
+            return perplexity
+
     def _compute_perplexity(self, batch: Dict[str, torch.Tensor]):
-        import math
         '''
         Computes perplexity differences between chosen and rejected sequences.
         '''
@@ -112,9 +133,12 @@ class ZymCTRLModule(pl.LightningModule):
             chosen_logits = self.forward(input_ids=batch["chosen"]["input_ids"], attention_mask=batch["chosen"]["attention_mask"]).logits
             chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
 
+            # breakpoint()
+            chosen_base_perplexity, rejected_base_perplexity = self._compute_base_perplexity(batch)
+
             # chosen_perplexity = calculatePerplexity(batch['chosen']['input_ids'], self.model, batch['chosen']['attention_mask'])
             
-            print(f"PRE_DPO Chosen perplexity: {batch['chosen']['perplexity'].item()}")
+            print(f"PRE_DPO Chosen perplexity: {chosen_base_perplexity}")
             print(f"POST_DPO Chosen perplexity: {chosen_perplexity}")
 
             # Get perplexity for rejected sequence
@@ -124,12 +148,12 @@ class ZymCTRLModule(pl.LightningModule):
 
             # rejected_perplexity = calculatePerplexity(batch['rejected']['input_ids'], self.model, batch['rejected']['attention_mask'])
             
-            print(f"PRE_DPO Rejected perplexity: {batch['rejected']['perplexity'].item()}")
+            print(f"PRE_DPO Rejected perplexity: {rejected_base_perplexity}")
             print(f"POST_DPO Rejected perplexity: {rejected_perplexity}")
             
             # Calculate differences from batch perplexities
-            chosen_diff = abs(chosen_perplexity - batch['chosen']['perplexity'].item())
-            rejected_diff = abs(rejected_perplexity - batch['rejected']['perplexity'].item())
+            chosen_diff = abs(chosen_perplexity - chosen_base_perplexity)
+            rejected_diff = abs(rejected_perplexity - rejected_base_perplexity)
 
             print(f"Chosen diff: {chosen_diff}")
             print(f"Rejected diff: {rejected_diff}")
@@ -143,7 +167,8 @@ class ZymCTRLModule(pl.LightningModule):
             )
             perplexity = math.exp(outputs.loss)
 
-            diff = abs(perplexity - batch['perplexity'].item())
+            base_ppl = self._compute_base_perplexity(batch)
+            diff = abs(perplexity - base_ppl)
 
             return diff
 
