@@ -19,7 +19,7 @@ class ZymCTRLDataset(Dataset):
         tokenizer,
         max_length: int = 512,
         training_mode: str = "sft",
-        stability_threshold: float = 1.0,
+        stability_threshold: float = 0,
     ):
         self.tokenizer = tokenizer
         logger.info(f"Initializing ZymCTRLDataset in {training_mode} mode")

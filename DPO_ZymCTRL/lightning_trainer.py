@@ -306,7 +306,7 @@ class ZymCTRLTrainer:
             ModelCheckpoint(
                 dirpath=self.output_dir,
                 filename="{epoch}-{" + ("val_loss" if val_dataset else "train_loss") + ":.2f}",
-                save_top_k=3,
+                save_top_k=1,
                 monitor="val_loss" if val_dataset else "train_loss",
                 mode="min"
             ),
@@ -345,7 +345,13 @@ class ZymCTRLTrainer:
             train_dataloaders=train_dataloader,
             val_dataloaders=val_dataloader
         )
-
+        
+        # Save the final model in Hugging Face format
+        output_dir = os.path.join(self.output_dir, "hf_model")
+        os.makedirs(output_dir, exist_ok=True)
+        model.model.save_pretrained(output_dir)
+        model.tokenizer.save_pretrained(output_dir)
+        
         return model
 
 def main():

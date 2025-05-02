@@ -5,6 +5,9 @@ import pandas as pd
 from tqdm import tqdm
 import json
 
+# Configure PyTorch memory management to avoid fragmentation
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 def remove_characters(sequence, char_list):
     '''
     Removes special tokens used during training.
@@ -22,6 +25,9 @@ def calculatePerplexity(input_ids, model, tokenizer):
     from pprint import pprint
     pprint(input_ids)
     with torch.no_grad():
+        # Ensure input_ids is 2D
+        if input_ids.dim() == 1:
+            input_ids = input_ids.unsqueeze(0)  # Add batch dimension
         outputs = model(input_ids, labels=input_ids)
     loss, logits = outputs[:2]
     return math.exp(loss)
@@ -39,18 +45,22 @@ def main(label, model, special_tokens, device, tokenizer):
         top_k=9, 
         repetition_penalty=1.2,
         max_length=1024,
+        min_length=10,  # Ensure sequences aren't too short
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=2)  # Using smaller batch size
+        num_return_sequences=1,  
+        temperature=0.9,  # Slightly reduce randomness
+        no_repeat_ngram_size=3  # Prevent repetitive patterns
+    )  
     
     print(f"Generated {len(outputs)} raw sequences")
     
-    # Check sequence sanity, ensure sequences are not-truncated
-    new_outputs = [output for output in outputs if output[-1] == 0]
+    # Check sequence sanity, ensure sequences are properly terminated
+    new_outputs = [output for output in outputs if output[-1] == 0 or output[-1] == 1]  # Accept either PAD or EOS token
     
     if not new_outputs:
-        print("not enough sequences with short lengths!!")
+        print("Warning: No properly terminated sequences found!")
         return {}
 
     print(f"After filtering: {len(new_outputs)} valid sequences")
@@ -71,51 +81,57 @@ def main(label, model, special_tokens, device, tokenizer):
 def process_sequences_with_stability(sequences_dict):
     """
     Add stability scores to sequences and convert to DataFrame.
-    Processes sequences in batches using stability_score.
+    Processes one sequence at a time using stability_score.
     """
     data = []
     canonical_amino_acids = set("ACDEFGHIKLMNPQRSTVWY")
     
-    # Collect valid sequences for batch processing
-    valid_sequences = []
-    sequence_metadata = []  # Store corresponding metadata (label, perplexity)
+    # Process sequences one at a time
+    total_sequences = sum(len(seq_list) for seq_list in sequences_dict.values())
+    processed = 0
     
     for label, seq_list in sequences_dict.items():
         for seq, ppl in seq_list:
+            processed += 1
             # Check if sequence is valid
             if not all(c in canonical_amino_acids for c in seq):
                 print(f"Skipping invalid sequence: {seq[:20]}...")
                 continue
             
-            valid_sequences.append(seq)
-            sequence_metadata.append((label, ppl))
-    
-    print(f"\nComputing stability for {len(valid_sequences)} sequences...")
-    # Get stability scores for all sequences at once
-    stability_results = stability_score(valid_sequences)
-    
-    # Process results
-    for (seq, (label, ppl)), (raw_if, dg) in zip(zip(valid_sequences, sequence_metadata), stability_results):
-        # Use deltaG as the stability score
-        stability = dg
-        
-        # Assign stability label based on deltaG
-        # Note: Adjusting thresholds since deltaG is in kcal/mol
-        if stability < -2.0:  # More negative = more stable
-            stability_label = "high"
-        elif stability > 0.0:
-            stability_label = "low"
-        else:
-            stability_label = "medium"
+            print(f"\nProcessing sequence {processed}/{total_sequences}")
             
-        data.append({
-            'sequence': seq,
-            'perplexity': ppl,
-            'stability_score': stability,
-            'stability_raw_if': raw_if,
-            'stability_label': stability_label,
-            'ec_label': label
-        })
+            try:
+                # Get stability score for single sequence
+                stability_results = stability_score([seq])
+                raw_if, dg = stability_results[0]
+                
+                # Use deltaG as the stability score
+                stability = dg
+                
+                # Assign stability label based on deltaG
+                if stability < -2.0:  # More negative = more stable
+                    stability_label = "high"
+                elif stability > 0.0:
+                    stability_label = "low"
+                else:
+                    stability_label = "medium"
+                    
+                data.append({
+                    'sequence': seq,
+                    'perplexity': ppl,
+                    'stability_score': stability,
+                    'stability_raw_if': raw_if,
+                    'stability_label': stability_label,
+                    'ec_label': label
+                })
+                
+                # Clear GPU memory after each sequence
+                torch.cuda.empty_cache()
+                
+            except Exception as e:
+                print(f"Error processing sequence: {str(e)}")
+                print("Skipping problematic sequence and continuing...")
+                continue
     
     return pd.DataFrame(data)
 
@@ -204,6 +220,7 @@ if __name__ == '__main__':
     
     # Process sequences and add stability scores
     print("\nComputing stability scores...")
+    
     df = process_sequences_with_stability(all_sequences)
     
     # Save results
