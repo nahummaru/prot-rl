@@ -80,11 +80,20 @@ class ZymCTRLModule(pl.LightningModule):
         
         # Load model and tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
-        # Set up padding token if not set
-        if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # add special tokens to tokenizer
+        special_tokens_dict = {
+            "additional_special_tokens": [
+                "<stability=high>",
+                "<stability=medium>",
+                "<stability=low>"
+            ]
+        }
+        self.tokenizer.add_special_tokens(special_tokens_dict)
             
         self.model = GPT2LMHeadModel.from_pretrained(model_name)
+        self.model.resize_token_embeddings(len(self.tokenizer))
+
         # Make sure model knows about padding token
         if self.model.config.pad_token_id is None:
             self.model.config.pad_token_id = self.tokenizer.pad_token_id
@@ -130,7 +139,6 @@ class ZymCTRLModule(pl.LightningModule):
         '''
 
         if self.training_mode == "dpo":
-            breakpoint()
             chosen_perplexity = calculatePerplexity(batch['chosen']['input_ids'], self.model, batch['chosen']['attention_mask'])
             
             print(f"PRE_DPO Chosen perplexity: {batch['chosen']['perplexity'].item()}")
@@ -451,6 +459,16 @@ def main():
     
     # Initialize tokenizer for dataset
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+
+    # Add special tokens to tokenizer
+    special_tokens_dict = {
+        "additional_special_tokens": [
+            "<stability=high>",
+            "<stability=medium>",
+            "<stability=low>"
+        ]
+    }
+    tokenizer.add_special_tokens(special_tokens_dict)
     
     # Load datasets
     train_dataset = ZymCTRLDataset(

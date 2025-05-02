@@ -218,8 +218,8 @@ class ZymCTRLDataset(Dataset):
             
             # Construct prompts with stability control tags
             stability_tag = 'high' if pair['prefer_stable'] else 'low'
-            chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], None) # to do fix
-            rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], None) # to do fix
+            chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], stability_tag)
+            rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], stability_tag)
             
             # Tokenize both sequences
             chosen_inputs = self.tokenizer(
