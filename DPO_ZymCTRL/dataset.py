@@ -50,11 +50,6 @@ class ZymCTRLDataset(Dataset):
         assert "stability_score" in self.data.columns, "stability_score column required"
         assert "ec_label" in self.data.columns, "ec_label column required"
 
-    def __len__(self):
-        if self.training_mode == "sft":
-            return len(self.sample_indices)
-        return len(self.paired_data)
-
     def _format_sequence(self, ec_label: str, sequence: str, stability_level: Optional[str] = None) -> str:
         """Format sequence according to original ZymCTRL paper format"""
         if stability_level is not None:
@@ -62,21 +57,32 @@ class ZymCTRLDataset(Dataset):
             return f"{ec_label}<stability={stability_level}><sep><start>{sequence}<end><|endoftext|>"
         return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
 
+    # Interfaces that child classes need to define
+    def __len__(self):
+        raise NotImplemented()
+
     def __getitem__(self, idx):
         raise NotImplementedError()
         
 # SFT layer
 class ZymCTRLSFTDataset(ZymCTRLDataset):
     def __init__(
-        self, **kwargs
+        self,
+        split_percent=0.15,
+        **kwargs
     ):
         super().__init__(**kwargs)
         logger.info(f"Initializing SFT ZymCTRLDataset.")
 
+        # Process underlying data for DPO!
+        # tldr; sort and pair 
+
+        self.split_percent = split_percent
+
         # Sort data by stability score - ascending for stability (lower = more stable)
         sorted_data = self.data.sort_values('stability_score', ascending=True)
         n_samples = len(sorted_data)
-        n_subset = int(0.15 * n_samples)
+        n_subset = int(split_percent * n_samples)
         logger.info(f"Creating subsets with {n_subset} samples each (15% of total)")
 
         # Select top 15% (most stable), middle 15%, and bottom 15% (least stable)
@@ -107,9 +113,6 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
     def __len__(self):
         return len(self.sample_indices)
 
-    def _format_sequence(self, ec_label: str, sequence: str, stability_level: Optional[str] = None) -> str:
-        return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
-
     def __getitem__(self, idx):
         # Get the sample index and stability level
         data_idx, stability_level = self.sample_indices[idx]
@@ -117,9 +120,11 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
         
         # Log every 1000th sample for monitoring
         if idx % 1000 == 0:
+            logger.debug(f"== SFT Internal logging call ==")
             logger.debug(f"SFT Sample {idx}:")
             logger.debug(f"Stability level: {stability_level}")
             logger.debug(f"Stability score: {sample['stability_score']:.2f}")
+            logger.debug(f"== SFT Internal logging end ==")
         
         # Construct prompt using original ZymCTRL format
         prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_level)
@@ -135,11 +140,13 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
 
         # NOTE: This attention mask is NOT causal. It only masks out the padding tokens.
         # However, GPT2LMHeadModel automatically uses a causal attention mask. So we are chilling
-        
+
         # Return only the necessary fields for the model
         return {
             "input_ids": inputs["input_ids"].squeeze(0),
             "attention_mask": inputs["attention_mask"].squeeze(0),
+            "stability_score": stability_level,
+            "perplexity": sample["perplexity"]
         } 
 
 # DPO layer
@@ -150,24 +157,6 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         super().__init__(**kwargs)
 
         logger.info(f"Initializing DPO ZymCTRLDataset.")
-            
-        # self.training_mode = training_mode
-        # self.stability_threshold = stability_threshold
-        # logger.info(f"Using stability threshold: {stability_threshold}")
-        
-        # Load data
-        # self.data = pd.read_csv(data_path)
-        # logger.info(f"Loaded {len(self.data)} sequences")
-        
-        # Log stability score distribution
-        # logger.info(f"Stability score range: {self.data['stability_score'].min():.2f} to {self.data['stability_score'].max():.2f}")
-        # logger.info(f"Stability score mean: {self.data['stability_score'].mean():.2f}")
-        # logger.info(f"Stability score std: {self.data['stability_score'].std():.2f}")
-        
-        # Verify required columns exist
-        # assert "sequence" in self.data.columns, "sequence column required"
-        # assert "stability_score" in self.data.columns, "stability_score column required"
-        # assert "ec_label" in self.data.columns, "ec_label column required"
         
         # ===================== Pair Construction Logic =====================
         # The goal is to create pairs of sequences with clear stability differences
@@ -281,9 +270,6 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
 
     def __len__(self):
         return len(self.paired_data)
-
-    def _format_sequence(self, ec_label: str, sequence: str, stability_level: str) -> str:
-        return f"{ec_label}<stability={stability_level}><sep><start>{sequence}<end><|endoftext|>"
 
     def __getitem__(self, idx):
         pair = self.paired_data.iloc[idx]
