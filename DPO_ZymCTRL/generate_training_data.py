@@ -10,6 +10,8 @@ from utils import perplexity_from_logits
 # Configure PyTorch memory management to avoid fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
+AVOID_ESM = True
+
 def remove_characters(sequence, char_list):
     '''
     Removes special tokens used during training.
@@ -70,7 +72,7 @@ def main(label, model, special_tokens, device, tokenizer):
         decoded_output = tokenizer.decode(output)
 
         logits = model.forward(output).logits
-        ppl = perplexity_from_logits(logits, output, None)
+        ppl = perplexity_from_logits(logits, output, None).item()
 
         ppls.append((decoded_output, ppl))
 
@@ -113,8 +115,12 @@ def process_sequences_with_stability(sequences_dict):
             
             try:
                 # Get stability score for single sequence
-                stability_results = stability_score([seq])
-                raw_if, dg = stability_results[0]
+                if AVOID_ESM:
+                    raw_if = torch.rand(1).item() * 2 - 1
+                    dg = torch.rand(1).item() * 2 - 1
+                else: 
+                    stability_results = stability_score([seq])
+                    raw_if, dg = stability_results[0]
                 
                 # Use deltaG as the stability score
                 stability = dg
