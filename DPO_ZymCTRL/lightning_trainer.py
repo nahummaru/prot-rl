@@ -76,6 +76,56 @@ class ZymCTRLModule(pl.LightningModule):
         else:
             # DPO loss
             return self._dpo_step(batch)
+    
+    def _compute_perplexity(self, batch: Dict[str, torch.Tensor]):
+        import math
+        '''
+        Computes perplexity differences between chosen and rejected sequences.
+        '''
+
+        if self.training_mode == "dpo":
+            # Get perplexity for chosen sequence
+            chosen_outputs = self.model(
+                input_ids=batch['chosen']['input_ids'],
+                attention_mask=batch['chosen']['attention_mask'],
+                labels=batch['chosen']['input_ids']
+            )
+            loss, logits = chosen_outputs[:2]
+            chosen_perplexity = math.exp(loss)
+
+            print(f"PRE_DPO Chosen perplexity: {batch['chosen']['perplexity'].item()}")
+            print(f"POST_DPO Chosen perplexity: {chosen_perplexity}")
+
+            # Get perplexity for rejected sequence
+            rejected_outputs = self.model(
+                input_ids=batch['rejected']['input_ids'],
+                attention_mask=batch['rejected']['attention_mask'],
+                labels=batch['rejected']['labels']
+            )
+            rejected_perplexity = math.exp(rejected_outputs.loss)
+            
+            print(f"PRE_DPO Rejected perplexity: {batch['rejected']['perplexity'].item()}")
+            print(f"POST_DPO Rejected perplexity: {rejected_perplexity}")
+            
+            # Calculate differences from batch perplexities
+            chosen_diff = abs(chosen_perplexity - batch['chosen']['perplexity'].item())
+            rejected_diff = abs(rejected_perplexity - batch['rejected']['perplexity'].item())
+
+            print(f"Chosen diff: {chosen_diff}")
+            print(f"Rejected diff: {rejected_diff}")
+
+            return chosen_diff + rejected_diff
+        else:
+            outputs = self.model(
+                input_ids=batch['input_ids'],
+                attention_mask=batch['attention_mask'],
+                labels=batch['labels']
+            )
+            perplexity = math.exp(outputs.loss)
+
+            diff = abs(perplexity - batch['perplexity'].item())
+
+            return diff
 
     def training_step(self, batch, batch_idx):
         # Ensure we're in training mode
@@ -89,7 +139,9 @@ class ZymCTRLModule(pl.LightningModule):
         # Explicitly set eval mode for validation
         self.model.eval()
         loss = self._compute_loss(batch)
+        perplexity = self._compute_perplexity(batch)
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
+        self.log("perplexity", perplexity, prog_bar=True, sync_dist=True)
         return loss
 
     def _compute_logprobs(self, sequences: Union[str, List[str]]) -> torch.Tensor:
@@ -205,6 +257,7 @@ class ZymCTRLTrainer:
         self,
         train_dataset,
         val_dataset=None,
+        test_dataset=None,
         num_epochs: int = 3,
         run_name: Optional[str] = None,
         training_mode: str = "sft"
@@ -292,7 +345,7 @@ class ZymCTRLTrainer:
             train_dataloaders=train_dataloader,
             val_dataloaders=val_dataloader
         )
-        
+
         return model
 
 def main():

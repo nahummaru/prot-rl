@@ -63,3 +63,6 @@ checkpoints_iteration*/
 esm_if1_gvp4_t16_142M_UR50.pt
 training_data_iteration*/
 */wandb/run-*/
+
+val_data/
+train_data_iteration*/

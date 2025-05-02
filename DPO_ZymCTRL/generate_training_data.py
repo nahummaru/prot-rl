@@ -19,6 +19,8 @@ def calculatePerplexity(input_ids, model, tokenizer):
     '''
     Computes perplexities for the generated sequences. 
     '''
+    from pprint import pprint
+    pprint(input_ids)
     with torch.no_grad():
         outputs = model(input_ids, labels=input_ids)
     loss, logits = outputs[:2]
@@ -154,6 +156,8 @@ if __name__ == '__main__':
     parser.add_argument("--tag", type=str, default="")
     parser.add_argument("--model_path", type=str, default="",
                       help="Optional: Path to specific model checkpoint to use. If not provided, uses iteration-based loading.")
+    parser.add_argument("--data_type", type=str, default="train", choices=["train", "val"],
+                      help="Specify whether this is training or validation data. Affects output directory prefix.")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -186,7 +190,10 @@ if __name__ == '__main__':
         # Clear GPU memory after each batch
         torch.cuda.empty_cache()
 
-    output_dir = f"training_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
+    if args.data_type == "train":
+        output_dir = f"train_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
+    else:  # val
+        output_dir = f"val_data" + (f"_{args.tag}" if args.tag else "")
 
     # Make this directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)

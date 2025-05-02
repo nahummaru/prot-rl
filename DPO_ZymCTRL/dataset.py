@@ -118,7 +118,9 @@ class ZymCTRLDataset(Dataset):
                     
                 self.paired_data.append({
                     'chosen_sequence': chosen['sequence'],
+                    'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
                     'rejected_sequence': rejected['sequence'],
+                    'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
                     'chosen_score': chosen['stability_score'],
                     'rejected_score': rejected['stability_score'],
                     'ec_label': chosen['ec_label'],  # Both sequences have same EC number
@@ -138,7 +140,9 @@ class ZymCTRLDataset(Dataset):
                     
                 self.paired_data.append({
                     'chosen_sequence': chosen['sequence'],
+                    'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
                     'rejected_sequence': rejected['sequence'],
+                    'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
                     'chosen_score': chosen['stability_score'],
                     'rejected_score': rejected['stability_score'],
                     'ec_label': chosen['ec_label'],
@@ -240,13 +244,15 @@ class ZymCTRLDataset(Dataset):
                     "input_ids": chosen_inputs["input_ids"].squeeze(0),
                     "attention_mask": chosen_inputs["attention_mask"].squeeze(0),
                     "labels": chosen_inputs["input_ids"].squeeze(0).clone(),
-                    "stability_score": torch.tensor(pair['chosen_score'], dtype=torch.float)
+                    "stability_score": torch.tensor(pair['chosen_score'], dtype=torch.float),
+                    "perplexity": torch.tensor(pair['chosen_perplexity'], dtype=torch.float) # we add perplexity for validation evals
                 },
                 "rejected": {
                     "input_ids": rejected_inputs["input_ids"].squeeze(0),
                     "attention_mask": rejected_inputs["attention_mask"].squeeze(0),
                     "labels": rejected_inputs["input_ids"].squeeze(0).clone(),
-                    "stability_score": torch.tensor(pair['rejected_score'], dtype=torch.float)
+                    "stability_score": torch.tensor(pair['rejected_score'], dtype=torch.float),
+                    "perplexity": torch.tensor(pair['rejected_perplexity'], dtype=torch.float)
                 }
             }
             
