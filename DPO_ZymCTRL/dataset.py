@@ -218,14 +218,14 @@ class ZymCTRLDataset(Dataset):
             
             # Construct prompts with stability control tags
             stability_tag = 'high' if pair['prefer_stable'] else 'low'
-            chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], stability_tag)
-            rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], stability_tag)
+            chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], None) # to do fix
+            rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], None) # to do fix
             
             # Tokenize both sequences
             chosen_inputs = self.tokenizer(
                 chosen_prompt,
                 max_length=self.max_length,
-                padding="max_length",
+                # padding="max_length",
                 truncation=True,
                 return_tensors="pt"
             )
@@ -233,7 +233,7 @@ class ZymCTRLDataset(Dataset):
             rejected_inputs = self.tokenizer(
                 rejected_prompt,
                 max_length=self.max_length,
-                padding="max_length",
+                # padding="max_length",
                 truncation=True,
                 return_tensors="pt"
             )
@@ -243,7 +243,7 @@ class ZymCTRLDataset(Dataset):
                 "chosen": {
                     "input_ids": chosen_inputs["input_ids"].squeeze(0),
                     "attention_mask": chosen_inputs["attention_mask"].squeeze(0),
-                    "labels": chosen_inputs["input_ids"].squeeze(0).clone(),
+                    "labels": chosen_inputs["input_ids"].squeeze(0).clone(), # to do: shift labels by 1
                     "stability_score": torch.tensor(pair['chosen_score'], dtype=torch.float),
                     "perplexity": torch.tensor(pair['chosen_perplexity'], dtype=torch.float) # we add perplexity for validation evals
                 },
