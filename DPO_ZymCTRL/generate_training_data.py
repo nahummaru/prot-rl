@@ -51,7 +51,6 @@ def main(label, model, special_tokens, device, tokenizer):
         temperature=0.9,  # Slightly reduce randomness
         no_repeat_ngram_size=3  # Prevent repetitive patterns
     )  
-    breakpoint()
     print(f"Generated {len(outputs)} raw sequences")
     
     # Check sequence sanity, ensure sequences are properly terminated
@@ -188,7 +187,7 @@ if __name__ == '__main__':
     print(f"Loading {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
-    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>']
+    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', ' ', '<sep>']
 
     # Generate sequences in batches
     all_sequences = {}
