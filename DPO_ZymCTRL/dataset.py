@@ -21,6 +21,7 @@ class ZymCTRLDataset(Dataset):
         max_length: int = 512,
         training_mode: str = "sft",
         stability_threshold: float = 0,
+        type: str = "train"
     ):
         self.tokenizer = tokenizer
         logger.info(f"Initializing ZymCTRLDataset in {training_mode} mode")
@@ -30,7 +31,8 @@ class ZymCTRLDataset(Dataset):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
             logger.info("Set padding token to EOS token")
-            
+
+        self.type = type
         self.max_length = max_length
         self.training_mode = training_mode
         self.stability_threshold = stability_threshold
@@ -127,7 +129,11 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
             logger.debug(f"== SFT Internal logging end ==")
         
         # Construct prompt using original ZymCTRL format
-        prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_level)
+        stability_tag = None
+        if self.type == "train":
+            stability_tag = sample['stability_label']
+        
+        prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_tag)
         
         # Tokenize prompt
         inputs = self.tokenizer(
@@ -145,7 +151,7 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
         return {
             "input_ids": inputs["input_ids"].squeeze(0),
             "attention_mask": inputs["attention_mask"].squeeze(0),
-            "stability_score": stability_level,
+            "stability_score": sample["stability_score"],
             "perplexity": sample["perplexity"]
         } 
 
@@ -173,7 +179,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         #    - Second half: prefer unstable (chosen=unstable, rejected=stable)
         #    This creates a balanced dataset where model learns both preferences
         # ==============================================================
-        
+
         # Sort data by stability score for easier pairing
         # Note: Lower stability_score (deltaG) = more stable structure
         sorted_data = self.data.sort_values('stability_score', ascending=True)
@@ -181,8 +187,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         
         # Select top 15% (most stable) and bottom 15% least stable sequences
         # This ensures we only train on clear examples of stable vs unstable
-        # n_subset = int(0.15 * n_samples)
-        n_subset = int(n_samples)
+        n_subset = int(n_samples * 0.25)
         top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
         bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
         
@@ -284,9 +289,12 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
             logger.debug(f"Score difference: {abs(pair['chosen_score'] - pair['rejected_score']):.2f}")
         
         # Construct prompts with stability control tags
-        stability_tag = 'high' if pair['prefer_stable'] else 'low'
-        chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], None) # to do fix
-        rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], None) # to do fix
+        stability_tag = None
+        if self.type == "train":
+            stability_tag = 'high' if pair['prefer_stable'] else 'low'
+
+        chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], stability_tag)
+        rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], stability_tag)
         
         # Tokenize both sequences
         chosen_inputs = self.tokenizer(

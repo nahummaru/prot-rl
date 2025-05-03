@@ -51,7 +51,7 @@ def main(label, model, special_tokens, device, tokenizer):
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=8,  
+        num_return_sequences=20,  
         temperature=0.9,  # Slightly reduce randomness
         no_repeat_ngram_size=3  # Prevent repetitive patterns
     ) 
