@@ -10,7 +10,7 @@ from utils import perplexity_from_logits
 # Configure PyTorch memory management to avoid fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 
-AVOID_ESM = True
+AVOID_ESM = False
 
 def remove_characters(sequence, char_list):
     '''
