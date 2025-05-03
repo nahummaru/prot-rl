@@ -70,7 +70,7 @@ class ZymCTRLDataset(Dataset):
 class ZymCTRLSFTDataset(ZymCTRLDataset):
     def __init__(
         self,
-        split_percent=0.15,
+        split_percent=.33,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -111,6 +111,15 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
         # Store sorted data for easy access during training
         self.sorted_data = sorted_data
         logger.info(f"Created {len(self.sample_indices)} total samples")
+        
+        # Count and log the number of samples for each stability level
+        high_count = sum(1 for _, level in self.sample_indices if level == 'high')
+        medium_count = sum(1 for _, level in self.sample_indices if level == 'medium')
+        low_count = sum(1 for _, level in self.sample_indices if level == 'low')
+        logger.info(f"Number of samples per stability level:")
+        logger.info(f"High stability: {high_count}")
+        logger.info(f"Medium stability: {medium_count}")
+        logger.info(f"Low stability: {low_count}")
 
     def __len__(self):
         return len(self.sample_indices)

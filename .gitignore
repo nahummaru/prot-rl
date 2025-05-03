@@ -66,3 +66,9 @@ training_data_iteration*/
 
 val_data/
 train_data_iteration*/
+slurm-*.out
+slurm-*.err
+slurm-*.log
+slurm-*.err.gz
+slurm-*.out.gz
+slurm-*.log.gz
