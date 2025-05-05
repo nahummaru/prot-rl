@@ -141,23 +141,25 @@ def generate_stability_labels(input_path, output_path, limit=None):
     rows = list(reader)    # Get all data rows
   
   # Add stability scores (random values between 0 and 1 for this example)
-  for i, row in enumerate(rows):
+  batch_size = 512
+  for i in range(0, len(rows), batch_size):
     if limit is not None and i == limit:
       break
 
     try:
-      seq = row[1] 
-      stability_results = stability_score([seq])
-      raw_if, stability = stability_results[0]
+      seqs = [rows[j][1] for j in range(i, i + batch_size)]
+      stability_results = stability_score(seqs)
+      for k, raw_if, stability in enumerate(stability_results):
+        # raw_if, stability = stability_results[0]
 
-      if stability < -2.0:  # More negative = more stable
-        stability_label = "high"
-      elif stability > 0.0:
-        stability_label = "low"
-      else:
-        stability_label = "medium"
+        if stability < -2.0:  # More negative = more stable
+          stability_label = "high"
+        elif stability > 0.0:
+          stability_label = "low"
+        else:
+          stability_label = "medium"
 
-      row.append(str(raw_if), str(stability), stability_label)
+        rows[i + k].append(str(raw_if), str(stability), stability_label)
 
       torch.cuda.empty_cache()
     except Exception as e:
