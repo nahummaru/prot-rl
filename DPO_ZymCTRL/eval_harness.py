@@ -8,6 +8,7 @@ from scipy.stats import entropy
 import logging
 from tqdm import tqdm
 from typing import Optional
+import math
 
 from transformers import AutoTokenizer, GPT2LMHeadModel
 from stability import stability_score
@@ -53,10 +54,6 @@ class ControllabilityEvaluator:
             # Load just the tokenizer from base model
             self.tokenizer = AutoTokenizer.from_pretrained('AI4PD/ZymCTRL')
             
-            # Initialize a fresh model without pretrained weights
-            config = GPT2LMHeadModel.from_pretrained('AI4PD/ZymCTRL').config
-            base_model = GPT2LMHeadModel(config)
-            
             # Add special tokens for stability tags and sequence formatting
             special_tokens_dict = {
                 "additional_special_tokens": [
@@ -67,6 +64,10 @@ class ControllabilityEvaluator:
             }
             num_added_toks = self.tokenizer.add_special_tokens(special_tokens_dict)
             logger.info(f"Added {num_added_toks} special tokens to tokenizer")
+            
+            # Initialize a fresh model without pretrained weights
+            config = GPT2LMHeadModel.from_pretrained('AI4PD/ZymCTRL').config
+            base_model = GPT2LMHeadModel(config)
             
             # Resize model embeddings to account for new special tokens
             base_model.resize_token_embeddings(len(self.tokenizer))
@@ -88,6 +89,21 @@ class ControllabilityEvaluator:
             # Regular model loading
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
             self.model = GPT2LMHeadModel.from_pretrained(model_path).to(device)
+            
+            # Add special tokens for stability tags and sequence formatting
+            special_tokens_dict = {
+                "additional_special_tokens": [
+                    "<stability=high>",
+                    "<stability=medium>",
+                    "<stability=low>"
+                ]
+            }
+            num_added_toks = self.tokenizer.add_special_tokens(special_tokens_dict)
+            logger.info(f"Added {num_added_toks} special tokens to tokenizer")
+            
+            # Resize model embeddings to account for new special tokens
+            self.model.resize_token_embeddings(len(self.tokenizer))
+            logger.info(f"Resized model embeddings to {len(self.tokenizer)}")
         
         # Set up padding token if not set
         if self.tokenizer.pad_token is None:
@@ -164,12 +180,27 @@ class ControllabilityEvaluator:
 
         return sequences[:self.num_samples]
         
-        
+    def _calculate_perplexity(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> float:
+        """Calculate perplexity for a sequence."""
+        with torch.no_grad():
+            # Ensure input_ids is 2D
+            if input_ids.dim() == 1:
+                input_ids = input_ids.unsqueeze(0)  # Add batch dimension
+            
+            # If no attention mask provided, create one (all 1s)
+            if attention_mask is None:
+                attention_mask = torch.ones_like(input_ids)
+                
+            outputs = self.model(input_ids, labels=input_ids, attention_mask=attention_mask)
+            loss = outputs.loss
+            return math.exp(loss.item())
+
     def evaluate(self):
         """Run controllability evaluation."""
         results = {
             "sequences": {},
             "stability_scores": {},
+            "perplexity_scores": {},  # New field for perplexity
             "statistics": {},
         }
         
@@ -184,16 +215,36 @@ class ControllabilityEvaluator:
             logger.info(f"Calculating stability scores for {level}")
             scores = stability_score(sequences)
             logger.info(f"Number of stability scores evaluated: {len(scores)}")
-            assert len(sequences) == len(scores), "Num of stabilty scores should be same as generated sequences"
+            assert len(sequences) == len(scores), "Num of stability scores should be same as generated sequences"
             results["stability_scores"][level] = [score[1] for score in scores]  # Use deltaG values
+            
+            # Calculate perplexity scores
+            logger.info(f"Calculating perplexity scores for {level}")
+            perplexity_scores = []
+            for seq in sequences:
+                # Format sequence with EC label and stability tag
+                formatted_seq = self._format_sequence(self.ec_label, level) + seq
+                input_ids = self.tokenizer.encode(formatted_seq, return_tensors='pt').to(self.device)
+                perplexity = self._calculate_perplexity(input_ids)
+                perplexity_scores.append(perplexity)
+            results["perplexity_scores"][level] = perplexity_scores
             
             # Calculate basic statistics
             scores_array = np.array(results["stability_scores"][level])
+            perplexity_array = np.array(results["perplexity_scores"][level])
             results["statistics"][level] = {
-                "mean": np.mean(scores_array),
-                "std": np.std(scores_array),
-                "min": np.min(scores_array),
-                "max": np.max(scores_array)
+                "stability": {
+                    "mean": np.mean(scores_array),
+                    "std": np.std(scores_array),
+                    "min": np.min(scores_array),
+                    "max": np.max(scores_array)
+                },
+                "perplexity": {
+                    "mean": np.mean(perplexity_array),
+                    "std": np.std(perplexity_array),
+                    "min": np.min(perplexity_array),
+                    "max": np.max(perplexity_array)
+                }
             }
         
         # 2. Calculate statistical significance between pairs
@@ -202,13 +253,27 @@ class ControllabilityEvaluator:
         for level1 in self.stability_levels:
             for level2 in self.stability_levels:
                 if level1 < level2:  # Only do each pair once
+                    # Stability comparison
                     scores1 = results["stability_scores"][level1]
                     scores2 = results["stability_scores"][level2]
                     t_stat, p_value = stats.ttest_ind(scores1, scores2)
                     mean_diff = np.mean(scores1) - np.mean(scores2)
+                    
+                    # Perplexity comparison
+                    ppl1 = results["perplexity_scores"][level1]
+                    ppl2 = results["perplexity_scores"][level2]
+                    ppl_t_stat, ppl_p_value = stats.ttest_ind(ppl1, ppl2)
+                    ppl_mean_diff = np.mean(ppl1) - np.mean(ppl2)
+                    
                     results["comparisons"][f"{level1}_vs_{level2}"] = {
-                        "mean_difference": mean_diff,
-                        "p_value": p_value
+                        "stability": {
+                            "mean_difference": mean_diff,
+                            "p_value": p_value
+                        },
+                        "perplexity": {
+                            "mean_difference": ppl_mean_diff,
+                            "p_value": ppl_p_value
+                        }
                     }
                     
         return results
@@ -228,6 +293,17 @@ class ControllabilityEvaluator:
         plt.savefig(os.path.join(output_dir, "stability_distributions.png"))
         plt.close()
         
+        # 2. Plot perplexity distributions
+        plt.figure(figsize=(10, 6))
+        for level in self.stability_levels:
+            sns.kdeplot(results["perplexity_scores"][level], label=f"{level} (mean={np.mean(results['perplexity_scores'][level]):.2f})")
+        plt.title("Perplexity Score Distributions")
+        plt.xlabel("Perplexity")
+        plt.ylabel("Density")
+        plt.legend()
+        plt.savefig(os.path.join(output_dir, "perplexity_distributions.png"))
+        plt.close()
+        
         # Save numerical results
         with open(os.path.join(output_dir, "results.txt"), "w") as f:
             f.write("Controllability Evaluation Results\n")
@@ -237,22 +313,38 @@ class ControllabilityEvaluator:
             f.write("Stability Statistics:\n")
             f.write("-----------------\n")
             for level in self.stability_levels:
-                stats = results["statistics"][level]
+                stats = results["statistics"][level]["stability"]
                 f.write(f"{level}:\n")
                 f.write(f"  Mean ΔG: {stats['mean']:.2f}\n")
                 f.write(f"  Std ΔG: {stats['std']:.2f}\n")
                 f.write(f"  Min ΔG: {stats['min']:.2f}\n")
                 f.write(f"  Max ΔG: {stats['max']:.2f}\n\n")
+            
+            # Perplexity statistics
+            f.write("\nPerplexity Statistics:\n")
+            f.write("--------------------\n")
+            for level in self.stability_levels:
+                stats = results["statistics"][level]["perplexity"]
+                f.write(f"{level}:\n")
+                f.write(f"  Mean Perplexity: {stats['mean']:.2f}\n")
+                f.write(f"  Std Perplexity: {stats['std']:.2f}\n")
+                f.write(f"  Min Perplexity: {stats['min']:.2f}\n")
+                f.write(f"  Max Perplexity: {stats['max']:.2f}\n\n")
                 
             # Statistical comparisons
             f.write("\nStability Level Comparisons:\n")
             f.write("-------------------------\n")
             for comparison, stats in results["comparisons"].items():
                 f.write(f"{comparison}:\n")
-                f.write(f"  Mean difference: {stats['mean_difference']:.2f} kcal/mol\n")
-                f.write(f"  P-value: {stats['p_value']:.4f}\n")
-                f.write(f"  Significant: {'Yes' if stats['p_value'] < 0.05 else 'No'}\n\n")
-        
+                f.write("  Stability:\n")
+                f.write(f"    Mean difference: {stats['stability']['mean_difference']:.2f} kcal/mol\n")
+                f.write(f"    P-value: {stats['stability']['p_value']:.4f}\n")
+                f.write(f"    Significant: {'Yes' if stats['stability']['p_value'] < 0.05 else 'No'}\n")
+                f.write("  Perplexity:\n")
+                f.write(f"    Mean difference: {stats['perplexity']['mean_difference']:.2f}\n")
+                f.write(f"    P-value: {stats['perplexity']['p_value']:.4f}\n")
+                f.write(f"    Significant: {'Yes' if stats['perplexity']['p_value'] < 0.05 else 'No'}\n\n")
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Evaluate model controllability')
