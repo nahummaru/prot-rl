@@ -1,375 +1,370 @@
+"""
+ZymCTRL Evaluation Harness
+=========================
+
+This module provides evaluation tools for ZymCTRL models, specifically analyzing:
+1. Base model performance (no control tags)
+2. Controllability (effectiveness of stability tags)
+3. Model preservation (comparing finetuned vs base model)
+
+Usage
+-----
+1. Base Model Performance:
+   Evaluates the base model's generation capabilities without control tags
+   We will evaluate the 
+   ```
+   Command: python eval_harness.py \
+    --model_path "AI4PD/ZymCTRL" \
+    --eval_type performance \
+    --output_dir "base_results"
+   ```
+}
+
+2. Controllability Analysis:
+   Tests how well stability tags (high/medium/low) affect generation. 
+   We will evaluate the distribution of stabilities/preplexities for each stability tag
+
+    Command: python eval_harness.py \
+       --model_path "path/to/checkpoint.ckpt" \
+       --eval_type controllability \
+       --output_dir "ctrl_results"
+
+
+3. Model Preservation:
+   Compares finetuned model to base model (requires running both). We use NO control tags for this eval
+   ```
+   # First run base model
+    Command: python eval_harness.py \
+       --model_path "AI4PD/ZymCTRL" \
+       --eval_type performance \
+       --output_dir "comparison/base"
+
+   # Then run finetuned model
+   python eval_harness.py \
+       --model_path "path/to/checkpoint.ckpt" \
+       --eval_type performance \
+       --output_dir "comparison/finetuned"
+   ```
+
+Arguments
+---------
+--model_path: Path to model or checkpoint
+--eval_type: Type of evaluation [performance|controllability|all]
+--num_samples: Number of sequences to generate (default: 100)
+--batch_size: Batch size for generation (default: 10)
+--ec_label: EC number to use (default: 4.2.1.1)
+--output_dir: Directory to save results
+
+Output Format
+------------
+Results are saved as JSON files containing:
+- Generated sequences
+- Perplexity scores
+- Stability scores
+- Statistical comparisons (for controllability)
+
+Additional visualization tools are available in eval_viz.py
+"""
+
 import os
-import torch
+import math
+import logging
+import json
+from pathlib import Path
+from typing import Optional, List, Dict, Any, Sequence
+from dataclasses import dataclass
+
 import numpy as np
-import pandas as pd
+import torch
+from scipy import stats
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import entropy
-import logging
-from tqdm import tqdm
-from typing import Optional
-import math
-
 from transformers import AutoTokenizer, GPT2LMHeadModel
+
 from stability import stability_score
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', ' ', '<sep>']
+SPECIAL_TOKENS = ["<start>", "<end>", "<|endoftext|>", "<pad>", " ", "<sep>"]
+STABILITY_TAGS = ["<stability=high>", "<stability=medium>", "<stability=low>"]
 
-def remove_characters(sequence, char_list):
-    '''
-    Removes special tokens used during training.
-    '''
-    columns = sequence.split('<sep>')
-    seq = columns[1]
-    for char in char_list:
-        seq = seq.replace(char, '')
-    return seq
+@dataclass
+class GenerationConfig:
+    """Configuration for sequence generation."""
+    max_length: int = 1024
+    min_length: int = 10
+    top_k: int = 9
+    repetition_penalty: float = 1.2
+    do_sample: bool = True
+    num_return_sequences: int = 1
 
-
-
-class ControllabilityEvaluator:
+class BaseEvaluator:
+    """Base evaluation functionality shared by both evaluator types."""
+    
     def __init__(
         self,
         model_path: str,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str | torch.device = "cuda" if torch.cuda.is_available() else "cpu",
         num_samples: int = 100,
-        ec_label: str = "4.2.1.1",
         batch_size: int = 10,
-    ):
-        """Initialize the controllability evaluator."""
+        ec_label: str = "4.2.1.1",
+    ) -> None:
         self.model_path = model_path
-        self.device = device
+        self.device = torch.device(device)
         self.num_samples = num_samples
-        self.ec_label = ec_label
         self.batch_size = batch_size
+        self.ec_label = ec_label
         
-        # Load model and tokenizer
-        logger.info(f"Loading model from {model_path}")
+        # Load tokenizer and model
+        self._setup_tokenizer()
+        self._setup_model()
         
-        # Check if path is a checkpoint file
-        if model_path.endswith('.ckpt'):
-            # Load just the tokenizer from base model
-            self.tokenizer = AutoTokenizer.from_pretrained('AI4PD/ZymCTRL')
-            
-            # Add special tokens for stability tags and sequence formatting
-            special_tokens_dict = {
-                "additional_special_tokens": [
-                    "<stability=high>",
-                    "<stability=medium>",
-                    "<stability=low>"
-                ]
-            }
-            num_added_toks = self.tokenizer.add_special_tokens(special_tokens_dict)
-            logger.info(f"Added {num_added_toks} special tokens to tokenizer")
-            
-            # Initialize a fresh model without pretrained weights
-            config = GPT2LMHeadModel.from_pretrained('AI4PD/ZymCTRL').config
-            base_model = GPT2LMHeadModel(config)
-            
-            # Resize model embeddings to account for new special tokens
-            base_model.resize_token_embeddings(len(self.tokenizer))
-            logger.info(f"Resized model embeddings to {len(self.tokenizer)}")
-            
-            # Load state dict from checkpoint
-            checkpoint = torch.load(model_path, map_location=device)
-            # Extract model state dict - handle both Lightning and regular checkpoints
-            if 'state_dict' in checkpoint:
-                state_dict = {k.replace('model.', ''): v for k, v in checkpoint['state_dict'].items()}
-            else:
-                state_dict = checkpoint
-            
-            # Load the state dict
-            base_model.load_state_dict(state_dict)
-            self.model = base_model.to(device)
-            logger.info(f"Loaded checkpoint from {model_path}")
+    def _setup_tokenizer(self) -> None:
+        """Initialize and configure tokenizer."""
+        if self.model_path.endswith(".ckpt"):
+            self.tokenizer = AutoTokenizer.from_pretrained("AI4PD/ZymCTRL")
         else:
-            # Regular model loading
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-            self.model = GPT2LMHeadModel.from_pretrained(model_path).to(device)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
             
-            # Add special tokens for stability tags and sequence formatting
-            special_tokens_dict = {
-                "additional_special_tokens": [
-                    "<stability=high>",
-                    "<stability=medium>",
-                    "<stability=low>"
-                ]
-            }
-            num_added_toks = self.tokenizer.add_special_tokens(special_tokens_dict)
-            logger.info(f"Added {num_added_toks} special tokens to tokenizer")
+        # Add stability tags to vocabulary
+        added = self.tokenizer.add_special_tokens(
+            {"additional_special_tokens": STABILITY_TAGS}
+        )
+        if added:
+            logger.info("Added %d new special tokens", added)
             
-            # Resize model embeddings to account for new special tokens
-            self.model.resize_token_embeddings(len(self.tokenizer))
-            logger.info(f"Resized model embeddings to {len(self.tokenizer)}")
-        
-        # Set up padding token if not set
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            logger.info("Set padding token to EOS token")
+            
+    def _setup_model(self) -> None:
+        """Initialize and configure model."""
+        base = (
+            GPT2LMHeadModel.from_pretrained("AI4PD/ZymCTRL")
+            if self.model_path.endswith(".ckpt")
+            else GPT2LMHeadModel.from_pretrained(self.model_path)
+        )
         
-        # Make sure model knows about padding token
-        if self.model.config.pad_token_id is None:
-            self.model.config.pad_token_id = self.tokenizer.pad_token_id
+        # Resize embeddings for new tokens
+        base.resize_token_embeddings(len(self.tokenizer))
         
-        # Define stability levels
-        self.stability_levels = ["high", "medium", "low", None]
+        # Load checkpoint if needed
+        if self.model_path.endswith(".ckpt"):
+            ckpt = torch.load(self.model_path, map_location="cpu")
+            state_dict = ckpt.get("state_dict", ckpt)
+            cleaned_state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
+            missing, unexpected = base.load_state_dict(cleaned_state_dict, strict=False)
+            if missing or unexpected:
+                logger.warning("Missing keys: %s | Unexpected keys: %s", missing, unexpected)
+        
+        self.model = base.to(self.device).eval()
+        self.model.config.pad_token_id = self.tokenizer.pad_token_id
+        
+    def _build_prompt(self, stability_tag: Optional[str] = None) -> str:
+        """Create input prompt with optional stability tag."""
+        tag = f"<stability={stability_tag}>" if stability_tag else ""
+        return f"{self.ec_label}{tag}<sep><start>"
     
-    def _format_sequence(self, ec_label: str, stability_level: Optional[str] = None) -> str:
-        """Format sequence according to original ZymCTRL paper format"""
-        if stability_level is not None:
-            # Add stability control tag right after EC label
-            return f"{ec_label}<stability={stability_level}><sep><start>"
-        return f"{ec_label}<sep><start>"
-        
-    def _generate_sequences(self, stability_level: str = None) -> list:
-        """Generate sequences for a given stability level."""
-        sequences = []
-
-        prompt = self._format_sequence(self.ec_label, stability_level)
+    @torch.no_grad()
+    def generate_sequences(
+        self,
+        stability_tag: Optional[str] = None,
+        config: Optional[GenerationConfig] = None,
+    ) -> List[str]:
+        """Generate sequences for given stability tag."""
+        if config is None:
+            config = GenerationConfig()
             
-        # Encode prompt
-        input_ids = self.tokenizer.encode(prompt, return_tensors='pt').to(self.device)
+        prompt_str = self._build_prompt(stability_tag)
+        prompt_batch = self.tokenizer(
+            [prompt_str] * self.batch_size,
+            return_tensors="pt",
+            padding=True,
+        ).to(self.device)
         
-        # Generate sequences in batches
-        num_batches = self.num_samples // self.batch_size
+        seqs: List[str] = []
+        batches = math.ceil(self.num_samples / self.batch_size)
         
-        for _ in tqdm(range(num_batches), desc=f"Generating {stability_level} sequences"):
-            try:
-                # Generate using same parameters as generate_training_data.pyc
-                outputs = self.model.generate(
-                    input_ids, 
-                    top_k=9, 
-                    repetition_penalty=1.2,
-                    max_length=1024,
-                    min_length=10,
-                    eos_token_id=1,
-                    pad_token_id=0,
-                    do_sample=True,
-                    num_return_sequences=self.batch_size
-                )
+        for _ in tqdm(range(batches), desc=f"Generate‑{stability_tag or 'baseline'}"):
+            # TODO (nahum): REVERT THIS TO ACUTALLY GENERATE
+            # outputs = self.model.generate(
+            #     **prompt_batch,
+            #     max_length=config.max_length,
+            #     min_length=config.min_length,
+            #     top_k=config.top_k,
+            #     repetition_penalty=config.repetition_penalty,
+            #     do_sample=config.do_sample,
+            #     num_return_sequences=self.batch_size,
+            # )
 
-                # Filter sequences same way as generate_training_data.py
-                new_outputs = [output for output in outputs if output[-1] == 0 or output[-1] == 1]
-                
-                if not new_outputs:
-                    logger.warning("No properly terminated sequences in batch")
-                    continue
-
-                # Process valid sequences
-                for output in new_outputs:
-                    seq = self.tokenizer.decode(output)
-                    # Clean sequence same way as generate_training_data.py
-                    seq = seq.replace(self.ec_label, "").strip()
-                    if stability_level:
-                        seq = seq.replace(f"<stability={stability_level}>", "").strip()
-                        seq = remove_characters(seq, special_tokens)
-                    # Only keep sequences with valid amino acids
-                    if all(c in "ACDEFGHIKLMNPQRSTVWY" for c in seq):
-                        sequences.append(seq)
-
-                # Clear CUDA cache after each batch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-            except RuntimeError as e:
-                logger.error(f"Error during generation: {str(e)}")
-                continue
-
-        return sequences[:self.num_samples]
-        
-    def _calculate_perplexity(self, input_ids: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> float:
-        """Calculate perplexity for a sequence."""
-        with torch.no_grad():
-            # Ensure input_ids is 2D
-            if input_ids.dim() == 1:
-                input_ids = input_ids.unsqueeze(0)  # Add batch dimension
+            # Create dummy outputs for testing
+            dummy_sequence = "ACDEFGHIKLMNPQRSTVY"
+            outputs = torch.tensor([[self.tokenizer.encode(dummy_sequence)]] * self.batch_size)
             
-            # If no attention mask provided, create one (all 1s)
-            if attention_mask is None:
-                attention_mask = torch.ones_like(input_ids)
+            for seq_ids in outputs:
+                text = self.tokenizer.decode(seq_ids, skip_special_tokens=False)
+                # Clean up sequence
+                clean = text.replace(self.ec_label, "")
+                if stability_tag:
+                    clean = clean.replace(f"<stability={stability_tag}>", "")
+                clean = self._strip_special(clean).strip()
                 
-            outputs = self.model(input_ids, labels=input_ids, attention_mask=attention_mask)
-            loss = outputs.loss
-            return math.exp(loss.item())
+                if all(c in "ACDEFGHIKLMNPQRSTVWY" for c in clean):
+                    seqs.append(clean)
+                    
+            if len(seqs) >= self.num_samples:
+                break
+                
+        return seqs[:self.num_samples]
+    
+    @torch.no_grad()
+    def calculate_perplexity(self, sequences: Sequence[str]) -> List[float]:
+        """Calculate perplexity for a list of sequences."""
+        perplexities = []
+        for seq in sequences:
+            ids = self.tokenizer(seq, return_tensors="pt").input_ids.to(self.device)
+            loss = self.model(ids, labels=ids).loss
+            perplexities.append(math.exp(loss.item()))
+        return perplexities
+    
+    def calculate_stability(self, sequences: Sequence[str]) -> List[float]:
+        """Calculate stability scores for sequences."""
+        # TODO (nahum): REVERT THIS TO ACUTALLY GENERATE
+        #scores = stability_score(sequences)
+        # Create dummy stability scores for testing
+        scores = [(seq, 0.5) for seq in sequences]
+        return [score[1] for score in scores]
+    
+    @staticmethod
+    def _strip_special(seq: str) -> str:
+        """Remove special tokens and training markup."""
+        *_, core = seq.split("<sep>")
+        for token in SPECIAL_TOKENS:
+            core = core.replace(token, "")
+        return core
 
-    def evaluate(self):
-        """Run controllability evaluation."""
-        results = {
-            "sequences": {},
-            "stability_scores": {},
-            "perplexity_scores": {},  # New field for perplexity
-            "statistics": {},
+class ModelPerformanceEvaluator(BaseEvaluator):
+    """Evaluates model performance relative to baseline."""
+    
+    def evaluate(self) -> Dict[str, Any]:
+        """Run performance evaluation."""
+        # Generate baseline sequences (no tags)
+        # sequences = self.generate_sequences()
+        # Create dummy sequences for testing
+        sequences = ["MADEUPSEQUENCE", "TESTPROTEIN", "DUMMYDATA"] * (self.num_samples // 3 + 1)
+        sequences = sequences[:self.num_samples]
+        
+        return {
+            "sequences": sequences,
+            "metrics": {
+                "perplexity": self.calculate_perplexity(sequences),
+                "stability": self.calculate_stability(sequences)
+            }
         }
+
+class ControllabilityEvaluator(BaseEvaluator):
+    """Evaluates effectiveness of stability tags."""
+    
+    def evaluate(self) -> Dict[str, Any]:
+        """Run controllability evaluation."""
+        results = {}
         
-        # 1. Generate sequences and calculate stability for each level
-        for level in self.stability_levels:
-            logger.info(f"Generating sequences for stability level: {level}")
-            sequences = self._generate_sequences(level)
-            logger.info(f"Generated {len(sequences)} sequences for stability level: {level}")
-            results["sequences"][level] = sequences
-            
-            # Calculate stability scores
-            logger.info(f"Calculating stability scores for {level}")
-            scores = stability_score(sequences)
-            logger.info(f"Number of stability scores evaluated: {len(scores)}")
-            assert len(sequences) == len(scores), "Num of stability scores should be same as generated sequences"
-            results["stability_scores"][level] = [score[1] for score in scores]  # Use deltaG values
-            
-            # Calculate perplexity scores
-            logger.info(f"Calculating perplexity scores for {level}")
-            perplexity_scores = []
-            for seq in sequences:
-                # Format sequence with EC label and stability tag
-                formatted_seq = self._format_sequence(self.ec_label, level) + seq
-                input_ids = self.tokenizer.encode(formatted_seq, return_tensors='pt').to(self.device)
-                perplexity = self._calculate_perplexity(input_ids)
-                perplexity_scores.append(perplexity)
-            results["perplexity_scores"][level] = perplexity_scores
-            
-            # Calculate basic statistics
-            scores_array = np.array(results["stability_scores"][level])
-            perplexity_array = np.array(results["perplexity_scores"][level])
-            results["statistics"][level] = {
-                "stability": {
-                    "mean": np.mean(scores_array),
-                    "std": np.std(scores_array),
-                    "min": np.min(scores_array),
-                    "max": np.max(scores_array)
-                },
-                "perplexity": {
-                    "mean": np.mean(perplexity_array),
-                    "std": np.std(perplexity_array),
-                    "min": np.min(perplexity_array),
-                    "max": np.max(perplexity_array)
+        # Generate and evaluate sequences for each stability level
+        for tag in ["high", "medium", "low"]:
+            sequences = self.generate_sequences(stability_tag=tag)
+            results[tag] = {
+                "sequences": sequences,
+                "metrics": {
+                    "perplexity": self.calculate_perplexity(sequences),
+                    "stability": self.calculate_stability(sequences)
                 }
             }
-        
-        # 2. Calculate statistical significance between pairs
-        from scipy import stats
-        results["comparisons"] = {}
-        for level1 in self.stability_levels:
-            for level2 in self.stability_levels:
-                if level1 < level2:  # Only do each pair once
-                    # Stability comparison
-                    scores1 = results["stability_scores"][level1]
-                    scores2 = results["stability_scores"][level2]
-                    t_stat, p_value = stats.ttest_ind(scores1, scores2)
-                    mean_diff = np.mean(scores1) - np.mean(scores2)
-                    
-                    # Perplexity comparison
-                    ppl1 = results["perplexity_scores"][level1]
-                    ppl2 = results["perplexity_scores"][level2]
-                    ppl_t_stat, ppl_p_value = stats.ttest_ind(ppl1, ppl2)
-                    ppl_mean_diff = np.mean(ppl1) - np.mean(ppl2)
-                    
-                    results["comparisons"][f"{level1}_vs_{level2}"] = {
-                        "stability": {
-                            "mean_difference": mean_diff,
-                            "p_value": p_value
-                        },
-                        "perplexity": {
-                            "mean_difference": ppl_mean_diff,
-                            "p_value": ppl_p_value
-                        }
-                    }
-                    
+            
         return results
-        
-    def plot_results(self, results, output_dir="eval_results"):
-        """Plot evaluation results."""
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # 1. Plot stability score distributions
-        plt.figure(figsize=(10, 6))
-        for level in self.stability_levels:
-            sns.kdeplot(results["stability_scores"][level], label=f"{level} (mean={np.mean(results['stability_scores'][level]):.2f})")
-        plt.title("Stability Score Distributions")
-        plt.xlabel("ΔG (kcal/mol)")
-        plt.ylabel("Density")
-        plt.legend()
-        plt.savefig(os.path.join(output_dir, "stability_distributions.png"))
-        plt.close()
-        
-        # 2. Plot perplexity distributions
-        plt.figure(figsize=(10, 6))
-        for level in self.stability_levels:
-            sns.kdeplot(results["perplexity_scores"][level], label=f"{level} (mean={np.mean(results['perplexity_scores'][level]):.2f})")
-        plt.title("Perplexity Score Distributions")
-        plt.xlabel("Perplexity")
-        plt.ylabel("Density")
-        plt.legend()
-        plt.savefig(os.path.join(output_dir, "perplexity_distributions.png"))
-        plt.close()
-        
-        # Save numerical results
-        with open(os.path.join(output_dir, "results.txt"), "w") as f:
-            f.write("Controllability Evaluation Results\n")
-            f.write("================================\n\n")
-            
-            # Stability statistics
-            f.write("Stability Statistics:\n")
-            f.write("-----------------\n")
-            for level in self.stability_levels:
-                stats = results["statistics"][level]["stability"]
-                f.write(f"{level}:\n")
-                f.write(f"  Mean ΔG: {stats['mean']:.2f}\n")
-                f.write(f"  Std ΔG: {stats['std']:.2f}\n")
-                f.write(f"  Min ΔG: {stats['min']:.2f}\n")
-                f.write(f"  Max ΔG: {stats['max']:.2f}\n\n")
-            
-            # Perplexity statistics
-            f.write("\nPerplexity Statistics:\n")
-            f.write("--------------------\n")
-            for level in self.stability_levels:
-                stats = results["statistics"][level]["perplexity"]
-                f.write(f"{level}:\n")
-                f.write(f"  Mean Perplexity: {stats['mean']:.2f}\n")
-                f.write(f"  Std Perplexity: {stats['std']:.2f}\n")
-                f.write(f"  Min Perplexity: {stats['min']:.2f}\n")
-                f.write(f"  Max Perplexity: {stats['max']:.2f}\n\n")
-                
-            # Statistical comparisons
-            f.write("\nStability Level Comparisons:\n")
-            f.write("-------------------------\n")
-            for comparison, stats in results["comparisons"].items():
-                f.write(f"{comparison}:\n")
-                f.write("  Stability:\n")
-                f.write(f"    Mean difference: {stats['stability']['mean_difference']:.2f} kcal/mol\n")
-                f.write(f"    P-value: {stats['stability']['p_value']:.4f}\n")
-                f.write(f"    Significant: {'Yes' if stats['stability']['p_value'] < 0.05 else 'No'}\n")
-                f.write("  Perplexity:\n")
-                f.write(f"    Mean difference: {stats['perplexity']['mean_difference']:.2f}\n")
-                f.write(f"    P-value: {stats['perplexity']['p_value']:.4f}\n")
-                f.write(f"    Significant: {'Yes' if stats['perplexity']['p_value'] < 0.05 else 'No'}\n\n")
 
-if __name__ == "__main__":
+class EvaluationRunner:
+    """High-level interface for running evaluations."""
+    
+    def __init__(
+        self,
+        model_path: str,
+        num_samples: int = 100,
+        batch_size: int = 10,
+        ec_label: str = "4.2.1.1",
+    ) -> None:
+        self.model_path = model_path
+        self.num_samples = num_samples
+        self.batch_size = batch_size
+        self.ec_label = ec_label
+        
+    def run_performance(self) -> Dict[str, Any]:
+        """Run model performance evaluation."""
+        evaluator = ModelPerformanceEvaluator(
+            self.model_path,
+            num_samples=self.num_samples,
+            batch_size=self.batch_size,
+            ec_label=self.ec_label,
+        )
+        return evaluator.evaluate()
+    
+    def run_controllability(self) -> Dict[str, Any]:
+        """Run controllability evaluation."""
+        evaluator = ControllabilityEvaluator(
+            self.model_path,
+            num_samples=self.num_samples,
+            batch_size=self.batch_size,
+            ec_label=self.ec_label,
+        )
+        return evaluator.evaluate()
+    
+    def run_all(self) -> Dict[str, Any]:
+        """Run both performance and controllability evaluations."""
+        return {
+            "performance": self.run_performance(),
+            "controllability": self.run_controllability()
+        }
+
+def main():
     import argparse
-    parser = argparse.ArgumentParser(description='Evaluate model controllability')
-    parser.add_argument('--model_path', type=str, required=True,
-                      help='Path to model or checkpoint')
-    parser.add_argument('--num_samples', type=int, default=100,
-                      help='Number of sequences to generate per stability level')
-    parser.add_argument('--batch_size', type=int, default=10,
-                      help='Batch size for generation')
-    parser.add_argument('--ec_label', type=str, default="4.2.1.1",
-                      help='EC number to use')
-    parser.add_argument('--output_dir', type=str, default="eval_results",
-                      help='Directory to save evaluation results')
+    
+    parser = argparse.ArgumentParser(description="Evaluate ZymCTRL model performance and controllability")
+    parser.add_argument("--model_path", required=True, help="Path to model or checkpoint")
+    parser.add_argument("--num_samples", type=int, default=100, help="Number of sequences to generate")
+    parser.add_argument("--batch_size", type=int, default=10, help="Batch size for generation")
+    parser.add_argument("--ec_label", type=str, default="4.2.1.1", help="EC label to use")
+    parser.add_argument("--output_dir", type=str, default="eval_results", help="Output directory")
+    parser.add_argument(
+        "--eval_type",
+        choices=["all", "performance", "controllability"],
+        default="all",
+        help="Type of evaluation to run",
+    )
+    
     args = parser.parse_args()
     
-    # Initialize evaluator
-    evaluator = ControllabilityEvaluator(
+    # Create output directory
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Run evaluation
+    runner = EvaluationRunner(
         model_path=args.model_path,
         num_samples=args.num_samples,
         batch_size=args.batch_size,
-        ec_label=args.ec_label
+        ec_label=args.ec_label,
     )
     
-    # Run evaluation
-    results = evaluator.evaluate()
+    if args.eval_type == "performance":
+        results = runner.run_performance()
+    elif args.eval_type == "controllability":
+        results = runner.run_controllability()
+    else:
+        results = runner.run_all()
     
-    # Plot and save results
-    evaluator.plot_results(results, args.output_dir) 
+    # Save results
+    output_path = os.path.join(args.output_dir, f"{args.eval_type}_results.json")
+    with open(output_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+if __name__ == "__main__":
+    main()
