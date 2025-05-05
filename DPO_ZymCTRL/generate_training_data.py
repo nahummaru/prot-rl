@@ -100,7 +100,7 @@ def process_sequences_with_stability(sequences_dict):
             try:
                 # Get stability score for single sequence
                 stability_results = stability_score([seq])
-                raw_if, dg = stability_results[0]
+                raw_if, dg, plddt = stability_results[0]
                 
                 # Use deltaG as the stability score
                 stability = dg

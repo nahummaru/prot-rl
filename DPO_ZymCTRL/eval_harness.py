@@ -187,20 +187,15 @@ class BaseEvaluator:
         batches = math.ceil(self.num_samples / self.batch_size)
         
         for _ in tqdm(range(batches), desc=f"Generate‑{stability_tag or 'baseline'}"):
-            # TODO (nahum): REVERT THIS TO ACUTALLY GENERATE
-            # outputs = self.model.generate(
-            #     **prompt_batch,
-            #     max_length=config.max_length,
-            #     min_length=config.min_length,
-            #     top_k=config.top_k,
-            #     repetition_penalty=config.repetition_penalty,
-            #     do_sample=config.do_sample,
-            #     num_return_sequences=self.batch_size,
-            # )
-
-            # Create dummy outputs for testing
-            dummy_sequence = "ACDEFGHIKLMNPQRSTVY"
-            outputs = torch.tensor([[self.tokenizer.encode(dummy_sequence)]] * self.batch_size)
+            outputs = self.model.generate(
+                **prompt_batch,
+                max_length=config.max_length,
+                min_length=config.min_length,
+                top_k=config.top_k,
+                repetition_penalty=config.repetition_penalty,
+                do_sample=config.do_sample,
+                num_return_sequences=self.batch_size,
+            )
             
             for seq_ids in outputs:
                 text = self.tokenizer.decode(seq_ids, skip_special_tokens=False)
@@ -228,13 +223,10 @@ class BaseEvaluator:
             perplexities.append(math.exp(loss.item()))
         return perplexities
     
-    def calculate_stability(self, sequences: Sequence[str]) -> List[float]:
+    def calculate_stability(self, sequences: Sequence[str]) -> List[Dict[str, float]]:
         """Calculate stability scores for sequences."""
-        # TODO (nahum): REVERT THIS TO ACUTALLY GENERATE
-        #scores = stability_score(sequences)
-        # Create dummy stability scores for testing
-        scores = [(seq, 0.5) for seq in sequences]
-        return [score[1] for score in scores]
+        scores = stability_score(sequences)
+        return [{"raw_if": raw_if, "dg": dg, "plddt": plddt} for raw_if, dg, plddt in scores]
     
     @staticmethod
     def _strip_special(seq: str) -> str:
@@ -249,17 +241,18 @@ class ModelPerformanceEvaluator(BaseEvaluator):
     
     def evaluate(self) -> Dict[str, Any]:
         """Run performance evaluation."""
-        # Generate baseline sequences (no tags)
-        # sequences = self.generate_sequences()
-        # Create dummy sequences for testing
-        sequences = ["MADEUPSEQUENCE", "TESTPROTEIN", "DUMMYDATA"] * (self.num_samples // 3 + 1)
-        sequences = sequences[:self.num_samples]
+        sequences = self.generate_sequences()
+        stability_metrics = self.calculate_stability(sequences)
         
         return {
             "sequences": sequences,
             "metrics": {
                 "perplexity": self.calculate_perplexity(sequences),
-                "stability": self.calculate_stability(sequences)
+                "stability": {
+                    "raw_if": [m["raw_if"] for m in stability_metrics],
+                    "dg": [m["dg"] for m in stability_metrics],
+                    "plddt": [m["plddt"] for m in stability_metrics]
+                }
             }
         }
 
@@ -273,11 +266,17 @@ class ControllabilityEvaluator(BaseEvaluator):
         # Generate and evaluate sequences for each stability level
         for tag in ["high", "medium", "low"]:
             sequences = self.generate_sequences(stability_tag=tag)
+            stability_metrics = self.calculate_stability(sequences)
+            
             results[tag] = {
                 "sequences": sequences,
                 "metrics": {
                     "perplexity": self.calculate_perplexity(sequences),
-                    "stability": self.calculate_stability(sequences)
+                    "stability": {
+                        "raw_if": [m["raw_if"] for m in stability_metrics],
+                        "dg": [m["dg"] for m in stability_metrics],
+                        "plddt": [m["plddt"] for m in stability_metrics]
+                    }
                 }
             }
             
