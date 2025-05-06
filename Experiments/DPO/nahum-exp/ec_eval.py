@@ -5,6 +5,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from stability import compute_stability
 import pandas as pd
 import numpy as np
+import json
 
 def evaluate_ec_capabilities(model, tokenizer, ec_label, device):
     """
@@ -48,6 +49,27 @@ def generate_sequences(model, tokenizer, ec_label, device, num_sequences=20):
         sequences.append(sequence)
     
     return sequences
+
+def brenda_sequences(brenda_path, ec_label, num_sequences=20):
+    try:
+        # Load the BRENDA database CSV file
+        df = pd.read_csv(brenda_path)
+        
+        # Filter sequences by EC label
+        filtered_df = df[df['EC_NUMBER'] == ec_label]
+        
+        if filtered_df.empty:
+            print(f"No sequences found for EC label: {ec_label}")
+            return []
+        
+        sequences = filtered_df['sequence'].tolist()
+        
+        # Return up to num_sequences
+        return sequences[:num_sequences]
+    
+    except Exception as e:
+        print(f"Error loading BRENDA sequences: {e}")
+        return []
 
 def compute_perplexity(model, tokenizer, sequences, device):
     """
