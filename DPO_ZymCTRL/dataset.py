@@ -138,9 +138,9 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
             logger.debug(f"== SFT Internal logging end ==")
         
         # Construct prompt using original ZymCTRL format
-        stability_tag = None
-        if self.type == "train":
-            stability_tag = sample['stability_label']
+        # stability_tag = None
+        # if self.type == "train":
+        stability_tag = sample['stability_label']
         
         prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_tag)
         
@@ -253,24 +253,24 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         # Second half of pairs: teach model to prefer unstable sequences
         # For these pairs, the less stable sequence (higher score) is marked as "chosen"
         # and gets the "low" stability tag
-        for i in range(n_pairs, min(2 * n_pairs, len(valid_pairs))):
-            idx1, idx2 = valid_pairs[i]
-            seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
-            if seq1['stability_score'] > seq2['stability_score']:  # Higher score = less stable
-                chosen, rejected = seq1, seq2
-            else:
-                chosen, rejected = seq2, seq1
+        # for i in range(n_pairs, min(2 * n_pairs, len(valid_pairs))):
+        #     idx1, idx2 = valid_pairs[i]
+        #     seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
+        #     if seq1['stability_score'] > seq2['stability_score']:  # Higher score = less stable
+        #         chosen, rejected = seq1, seq2
+        #     else:
+        #         chosen, rejected = seq2, seq1
                 
-            self.paired_data.append({
-                'chosen_sequence': chosen['sequence'],
-                'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
-                'rejected_sequence': rejected['sequence'],
-                'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
-                'chosen_score': chosen['stability_score'],
-                'rejected_score': rejected['stability_score'],
-                'ec_label': chosen['ec_label'],
-                'prefer_stable': False
-            })
+        #     self.paired_data.append({
+        #         'chosen_sequence': chosen['sequence'],
+        #         'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
+        #         'rejected_sequence': rejected['sequence'],
+        #         'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
+        #         'chosen_score': chosen['stability_score'],
+        #         'rejected_score': rejected['stability_score'],
+        #         'ec_label': chosen['ec_label'],
+        #         'prefer_stable': False
+        #     })
         
         # Convert to DataFrame for easier indexing
         self.paired_data = pd.DataFrame(self.paired_data)

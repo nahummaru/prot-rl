@@ -175,15 +175,15 @@ class ZymCTRLModule(pl.LightningModule):
         loss = self._compute_loss(batch)
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
 
-        # dpo perplexity diffs
-        if self.training_mode == "dpo":
-            chosen_diff, rejected_diff = self._compute_perplexity(batch)
-            self.log("chosen_perplexity_diff", chosen_diff, prog_bar=True, sync_dist=True)
-            self.log("rejected_perplexity_diff", rejected_diff, prog_bar=True, sync_dist=True)
+        # # dpo perplexity diffs
+        # if self.training_mode == "dpo":
+        #     chosen_diff, rejected_diff = self._compute_perplexity(batch)
+        #     self.log("chosen_perplexity_diff", chosen_diff, prog_bar=True, sync_dist=True)
+        #     self.log("rejected_perplexity_diff", rejected_diff, prog_bar=True, sync_dist=True)
 
-        else:
-            diff = self._compute_perplexity(batch)
-            self.log("perplexity_diff", diff, prog_bar=True, sync_dist=True)
+        # else:
+        #     diff = self._compute_perplexity(batch)
+        #     self.log("perplexity_diff", diff, prog_bar=True, sync_dist=True)
 
         return loss
 

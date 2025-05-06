@@ -25,7 +25,7 @@ Usage
    We will evaluate the distribution of stabilities/preplexities for each stability tag
 
     Command: python eval_harness.py \
-       --model_path "path/to/checkpoint.ckpt" \
+       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_agi/epoch=0-val_loss=0.46.ckpt" \
        --eval_type controllability \
        --output_dir "ctrl_results"
 
@@ -101,7 +101,7 @@ class GenerationConfig:
     repetition_penalty: float = 1.2
     do_sample: bool = True
     num_return_sequences: int = 1
-
+    temperature: float = 1
 class BaseEvaluator:
     """Base evaluation functionality shared by both evaluator types."""
     
@@ -144,9 +144,9 @@ class BaseEvaluator:
     def _setup_model(self) -> None:
         """Initialize and configure model."""
         base = (
-            GPT2LMHeadModel.from_pretrained("AI4PD/ZymCTRL")
+            GPT2LMHeadModel.from_pretrained("AI4PD/ZymCTRL").to(self.device)
             if self.model_path.endswith(".ckpt")
-            else GPT2LMHeadModel.from_pretrained(self.model_path)
+            else GPT2LMHeadModel.from_pretrained(self.model_path).to(self.device)
         )
         
         # Resize embeddings for new tokens
@@ -198,12 +198,16 @@ class BaseEvaluator:
                 repetition_penalty=config.repetition_penalty,
                 do_sample=config.do_sample,
                 num_return_sequences=self.batch_size,
+                temperature=config.temperature,
             )
             
             for seq_ids in outputs:
                 text = self.tokenizer.decode(seq_ids, skip_special_tokens=False)
+                
                 # Clean up sequence
                 clean = text.replace(self.ec_label, "")
+
+                print("Length of sequence: ", len(seq_ids))
                 if stability_tag:
                     clean = clean.replace(f"<stability={stability_tag}>", "")
                 clean = self._strip_special(clean).strip()
@@ -379,8 +383,8 @@ def main():
     
     parser = argparse.ArgumentParser(description="Evaluate ZymCTRL model performance and controllability")
     parser.add_argument("--model_path", required=True, help="Path to model or checkpoint")
-    parser.add_argument("--num_samples", type=int, default=100, help="Number of sequences to generate")
-    parser.add_argument("--batch_size", type=int, default=10, help="Batch size for generation")
+    parser.add_argument("--num_samples", type=int, default=10, help="Number of sequences to generate")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generation")
     parser.add_argument("--ec_label", type=str, default="4.2.1.1", help="EC label to use")
     parser.add_argument("--output_dir", type=str, default="eval_results", help="Output directory")
     parser.add_argument(

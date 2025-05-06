@@ -52,7 +52,7 @@ def main(label, model, special_tokens, device, tokenizer):
         pad_token_id=0,
         do_sample=True,
         num_return_sequences=20,  
-        temperature=0.9,  # Slightly reduce randomness
+        temperature=1,  # Slightly reduce randomness
         no_repeat_ngram_size=3  # Prevent repetitive patterns
     ) 
     print(f"Generated {len(outputs)} raw sequences")
