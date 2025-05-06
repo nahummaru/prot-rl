@@ -241,3 +241,4 @@ xyzservices==2025.1.0
 yarl==1.20.0
 zipp==3.21.0
 zstd==1.5.6.7
+python-Levenshtein

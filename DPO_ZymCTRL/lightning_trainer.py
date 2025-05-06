@@ -11,43 +11,16 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import torch.nn.functional as F
 import pandas as pd
 from pathlib import Path
-from dataset import ZymCTRLDataset
+from dataset import ZymCTRLDataset, ZymCTRLSFTDataset, ZymCTRLDPODataset
 import random
 import logging
 
 import torch.nn.functional as F
 import torch
 
-# def perplexity_from_logits(logits: torch.Tensor,
-#                            labels: torch.Tensor,
-#                            attention_mask: torch.Tensor) -> torch.Tensor:
-#     """
-#     logits          : (B, L, V) – raw decoder outputs
-#     labels          : (B, L)     – token ids (usually same as input_ids)
-#     attention_mask  : (B, L)     – 1 for real tokens, 0 for padding
+import math
 
-#     Returns a scalar perplexity for the whole batch.
-#     """
-
-#     # GPT-style models predict token t given everything < t,
-#     # so predictions at position i are compared to label at i+1.
-#     shift_logits   = logits[:, :-1, :].contiguous()      # (B, L-1, V)
-#     shift_labels   = labels[:, 1:].contiguous()          # (B, L-1)
-#     shift_mask     = attention_mask[:, 1:]               # (B, L-1)
-
-#     # Step 1: log-probs
-#     log_probs = F.log_softmax(shift_logits, dim=-1)      # (B, L-1, V)
-
-#     # Step 2: gather log-prob of the true token
-#     #          -> (B, L-1)
-#     nll = -log_probs.gather(2, shift_labels.unsqueeze(-1)).squeeze(-1)
-
-#     # Step 3: mask padding, average, exponentiate
-#     nll = nll * shift_mask                               # zero-out pads
-#     mean_nll = nll.sum() / shift_mask.sum()              # average over real tokens
-#     ppl = torch.exp(mean_nll)
-
-#     return ppl
+from utils import perplexity_from_logits
 
 def calculatePerplexity(input_ids, model, attention_mask):
     import math
@@ -132,41 +105,57 @@ class ZymCTRLModule(pl.LightningModule):
             # DPO loss
             return self._dpo_step(batch)
     
-    def _compute_perplexity(self, batch: Dict[str, torch.Tensor]):
-        import math
-        '''
-        Computes perplexity differences between chosen and rejected sequences.
-        '''
-
+    def _compute_base_perplexity(self, batch: Dict[str, torch.Tensor]):
+        base_model = GPT2LMHeadModel.from_pretrained("AI4PD/ZymCTRL").to(self.device)
         if self.training_mode == "dpo":
-            chosen_perplexity = calculatePerplexity(batch['chosen']['input_ids'], self.model, batch['chosen']['attention_mask'])
-            
-            print(f"PRE_DPO Chosen perplexity: {batch['chosen']['perplexity'].item()}")
-            print(f"POST_DPO Chosen perplexity: {chosen_perplexity}")
+            chosen_logits = base_model.forward(input_ids=batch["chosen"]["input_ids"], attention_mask=batch["chosen"]["attention_mask"]).logits
+            chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
 
-            # Get perplexity for rejected sequence
-            rejected_perplexity = calculatePerplexity(batch['rejected']['input_ids'], self.model, batch['rejected']['attention_mask'])
-            
-            print(f"PRE_DPO Rejected perplexity: {batch['rejected']['perplexity'].item()}")
-            print(f"POST_DPO Rejected perplexity: {rejected_perplexity}")
-            
-            # Calculate differences from batch perplexities
-            chosen_diff = abs(chosen_perplexity - batch['chosen']['perplexity'].item())
-            rejected_diff = abs(rejected_perplexity - batch['rejected']['perplexity'].item())
+            rejected_logits = base_model.forward(input_ids=batch["rejected"]["input_ids"], attention_mask=batch["rejected"]["attention_mask"]).logits
+            rejected_perplexity = perplexity_from_logits(rejected_logits, batch["rejected"]["input_ids"], batch["rejected"]["attention_mask"])
 
-            print(f"Chosen diff: {chosen_diff}")
-            print(f"Rejected diff: {rejected_diff}")
-
-            return chosen_diff + rejected_diff
+            return chosen_perplexity, rejected_perplexity
         else:
-            outputs = self.model(
+            outputs = base_model.forward(
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
                 labels=batch['input_ids']
             )
             perplexity = math.exp(outputs.loss)
 
-            diff = abs(perplexity - batch['perplexity'].item())
+            return perplexity
+
+    def _compute_perplexity(self, batch: Dict[str, torch.Tensor]):
+        '''
+        Computes perplexity differences between chosen and rejected sequences.
+        '''
+        if self.training_mode == "dpo":
+            chosen_logits = self.forward(input_ids=batch["chosen"]["input_ids"], attention_mask=batch["chosen"]["attention_mask"]).logits
+            chosen_perplexity = perplexity_from_logits(chosen_logits, batch["chosen"]["input_ids"], batch["chosen"]["attention_mask"])
+            chosen_base_perplexity, rejected_base_perplexity = self._compute_base_perplexity(batch)
+
+            rejected_logits = self.forward(input_ids=batch["rejected"]["input_ids"], attention_mask=batch["rejected"]["attention_mask"]).logits
+            rejected_perplexity = perplexity_from_logits(rejected_logits, batch["rejected"]["input_ids"], batch["rejected"]["attention_mask"])
+            
+            # Calculate differences from batch perplexities
+            chosen_diff = abs(chosen_perplexity - chosen_base_perplexity)
+            rejected_diff = abs(rejected_perplexity - rejected_base_perplexity)
+
+            print(f"Chosen diff: {chosen_diff}")
+            print(f"Rejected diff: {rejected_diff}")
+
+            return chosen_diff, rejected_diff
+        else:
+            outputs = self.model(
+                input_ids=batch['input_ids'],
+                attention_mask=batch['attention_mask'],
+                labels=batch['input_ids']
+            )
+            
+            perplexity = math.exp(outputs.loss)
+
+            base_ppl = self._compute_base_perplexity(batch)
+            diff = abs(perplexity - base_ppl)
 
             return diff
 
@@ -181,10 +170,21 @@ class ZymCTRLModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         # Explicitly set eval mode for validation
         self.model.eval()
+
+        # val loss
         loss = self._compute_loss(batch)
-        perplexity = self._compute_perplexity(batch)
         self.log("val_loss", loss, prog_bar=True, sync_dist=True)
-        self.log("perplexity", perplexity, prog_bar=True, sync_dist=True)
+
+        # dpo perplexity diffs
+        if self.training_mode == "dpo":
+            chosen_diff, rejected_diff = self._compute_perplexity(batch)
+            self.log("chosen_perplexity_diff", chosen_diff, prog_bar=True, sync_dist=True)
+            self.log("rejected_perplexity_diff", rejected_diff, prog_bar=True, sync_dist=True)
+
+        else:
+            diff = self._compute_perplexity(batch)
+            self.log("perplexity_diff", diff, prog_bar=True, sync_dist=True)
+
         return loss
 
     def _compute_logprobs(self, sequences: Union[str, List[str]]) -> torch.Tensor:
@@ -379,6 +379,7 @@ class ZymCTRLTrainer:
             callbacks=callbacks,
             gradient_clip_val=1.0,
             precision="bf16-mixed",  # Enable mixed precision training with float16
+            limit_val_batches=100,
             **self.trainer_kwargs
         )
         
@@ -419,7 +420,7 @@ def main():
                         help='Directory to save checkpoints')
     parser.add_argument('--training_mode', type=str, default="sft",
                         help='Training mode: sft or dpo')
-    parser.add_argument('--beta', type=float, default=0.1,
+    parser.add_argument('--beta', type=float, default=0.05,
                         help='Beta parameter for DPO loss')
     parser.add_argument('--use_weighted_dpo', action='store_true',
                         help='Use weighted DPO with stability score differences as weights')
@@ -470,23 +471,26 @@ def main():
     }
     tokenizer.add_special_tokens(special_tokens_dict)
     
+    dataset_type = ZymCTRLSFTDataset if args.training_mode == "sft" else ZymCTRLDPODataset
     # Load datasets
-    train_dataset = ZymCTRLDataset(
+    train_dataset = dataset_type(
         data_path=args.train_data,
         tokenizer=tokenizer,
         max_length=args.max_length,
         training_mode=args.training_mode,
-        stability_threshold=args.stability_threshold
+        stability_threshold=args.stability_threshold,
+        type="train"
     )
     
     val_dataset = None
     if args.val_data:
-        val_dataset = ZymCTRLDataset(
+        val_dataset = dataset_type(
             data_path=args.val_data,
             tokenizer=tokenizer,
             max_length=args.max_length,
             training_mode=args.training_mode,
-            stability_threshold=args.stability_threshold
+            stability_threshold=args.stability_threshold,
+            type="val"
         )
     
     # Train model
@@ -495,7 +499,7 @@ def main():
         val_dataset=val_dataset,
         num_epochs=args.num_epochs,
         run_name=f"{'dpo' if args.training_mode == 'dpo' else 'sft'}-run",
-        training_mode=args.training_mode
+        training_mode=args.training_mode,
     )
 
 if __name__ == "__main__":

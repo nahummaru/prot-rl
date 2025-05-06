@@ -5,8 +5,12 @@ import pandas as pd
 from tqdm import tqdm
 import json
 
+from utils import perplexity_from_logits
+
 # Configure PyTorch memory management to avoid fragmentation
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
+AVOID_ESM = False
 
 def remove_characters(sequence, char_list):
     '''
@@ -47,10 +51,10 @@ def main(label, model, special_tokens, device, tokenizer):
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=1,  
+        num_return_sequences=20,  
         temperature=0.9,  # Slightly reduce randomness
         no_repeat_ngram_size=3  # Prevent repetitive patterns
-    )  
+    ) 
     print(f"Generated {len(outputs)} raw sequences")
     
     # Check sequence sanity, ensure sequences are properly terminated
@@ -62,14 +66,25 @@ def main(label, model, special_tokens, device, tokenizer):
 
     print(f"After filtering: {len(new_outputs)} valid sequences")
 
+    ppls = []
+    for output in new_outputs:
+        decoded_output = tokenizer.decode(output)
+
+        logits = model.forward(output).logits
+        ppl = perplexity_from_logits(logits, output, None).item()
+
+        ppls.append((decoded_output, ppl))
+
     # Compute perplexity for every generated sequence in the batch
-    ppls = [(tokenizer.decode(output), calculatePerplexity(output, model)) 
-            for output in new_outputs]
+    # ppls = [(tokenizer.decode(output), calculatePerplexity(output, model)) 
+    #         for output in new_outputs]
 
     # Sort the batch by perplexity, the lower the better
     ppls.sort(key=lambda i:i[1]) 
 
     # Final results dictionary without strange characters
+    # TODO parsing out special tokens here feels weird. If we're using the same
+    # tokenizer for encoding/decoding, shouldn't things remain consistent?
     sequences = {}
     sequences[label] = [(remove_characters(x[0], special_tokens), x[1]) for x in ppls]
 
@@ -101,6 +116,12 @@ def process_sequences_with_stability(sequences_dict):
                 # Get stability score for single sequence
                 stability_results = stability_score([seq])
                 raw_if, dg, plddt = stability_results[0]
+                if AVOID_ESM:
+                    raw_if = torch.rand(1).item() * 2 - 1
+                    dg = torch.rand(1).item() * 2 - 1
+                else: 
+                    stability_results = stability_score([seq])
+                    raw_if, dg = stability_results[0]
                 
                 # Use deltaG as the stability score
                 stability = dg
@@ -187,7 +208,7 @@ if __name__ == '__main__':
     print(f"Loading {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
-    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', ' ', '<sep>']
+    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>', ' ']
 
     # Generate sequences in batches
     all_sequences = {}

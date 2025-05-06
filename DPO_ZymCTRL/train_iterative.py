@@ -114,6 +114,8 @@ def main():
                       help='Number of warmup steps (default: 100)')
     parser.add_argument('--weight_decay', type=float, default=0.01,
                       help='Weight decay for AdamW optimizer (default: 0.01)')
+    parser.add_argument('--generate_data', type=bool, default=False,
+                      help='Generate data (default: False)')
     
     # Model and checkpoint parameters
     parser.add_argument('--initial_model', type=str, default="",
@@ -153,7 +155,8 @@ def main():
         print(f"\n=== Starting Iteration {i} ===")
         
         # Generate new data using current model
-        # run_data_generation(i, args.ec_label, args.sequences_per_iteration, args.tag, current_model)
+        if args.generate_data:
+            run_data_generation(i, args.ec_label, args.sequences_per_iteration, args.tag, current_model)
 
         # Get path to generated data
         data_dir = f"training_data_iteration{i}" + (f"_{args.tag}" if args.tag else "")
