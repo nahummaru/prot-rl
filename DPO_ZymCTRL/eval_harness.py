@@ -81,6 +81,8 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
 from transformers import AutoTokenizer, GPT2LMHeadModel
+import pandas as pd
+import Levenshtein
 
 from stability import stability_score
 
@@ -110,6 +112,7 @@ class BaseEvaluator:
         num_samples: int = 100,
         batch_size: int = 10,
         ec_label: str = "4.2.1.1",
+        brenda_path: str | None = None,
     ) -> None:
         self.model_path = model_path
         self.device = torch.device(device)
@@ -235,6 +238,11 @@ class BaseEvaluator:
         for token in SPECIAL_TOKENS:
             core = core.replace(token, "")
         return core
+    
+    def _load_brenda(self) -> List[str]:
+        df = pd.read_csv(self.brenda_path)
+        filtered_df = df[df['EC_NUMBER'] == self.ec_label]
+        return filtered_df.tolist()
 
 class ModelPerformanceEvaluator(BaseEvaluator):
     """Evaluates model performance relative to baseline."""
@@ -282,6 +290,40 @@ class ControllabilityEvaluator(BaseEvaluator):
             
         return results
 
+class MembershipEvaluator(BaseEvaluator):
+    """Evaluates membership of generated sequences in BRENDA database."""
+
+    @staticmethod
+    def membership_score(brenda_sequences, target_sequences):
+        scores = []
+
+        for target_seq in target_sequences:
+            min_score = None
+            for brenda_seq in brenda_sequences:
+                score = Levenshtein.distance(target_seq, brenda_seq)
+                if min_score is None or score < min_score:
+                    min_score = score
+            scores.append(min_score)
+
+        return scores
+
+    def evaluate(self) -> Dict[str, Any]:
+        """Run membership evaluation."""
+        brenda_sequences = self._load_brenda()
+
+        results = {}
+
+        for tag in ["high", "medium", "low"]:
+            sequences = self.generate_sequences(stability_tag=tag)
+            scores = self.membership_score(brenda_sequences, sequences)
+
+            results[tag] = {
+                "sequences": sequences,
+                "scores": scores
+            }
+
+        return results
+
 class EvaluationRunner:
     """High-level interface for running evaluations."""
     
@@ -317,6 +359,14 @@ class EvaluationRunner:
         )
         return evaluator.evaluate()
     
+    def run_membership(self) -> Dict[str, Any]:
+        """Run membership evaluation."""
+        evaluator = MembershipEvaluator(
+            self.model_path,
+            num_samples=self.num_samples,
+            batch_size=self.batch_size,
+        )
+
     def run_all(self) -> Dict[str, Any]:
         """Run both performance and controllability evaluations."""
         return {
