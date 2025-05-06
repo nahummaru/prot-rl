@@ -114,6 +114,8 @@ def process_sequences_with_stability(sequences_dict):
             
             try:
                 # Get stability score for single sequence
+                stability_results = stability_score([seq])
+                raw_if, dg, plddt = stability_results[0]
                 if AVOID_ESM:
                     raw_if = torch.rand(1).item() * 2 - 1
                     dg = torch.rand(1).item() * 2 - 1

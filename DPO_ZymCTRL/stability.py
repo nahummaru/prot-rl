@@ -143,11 +143,25 @@ def _load_esmfold(model_name: str = "facebook/esmfold_v1"):
         _efs_model.eval()
     return _efs_model, device
 
-def _fold_seq_to_pdb_str(sequence: str, model_name: str) -> str:
+def _fold_seq_to_pdb_str(sequence: str, model_name: str) -> Tuple[str, float]:
+    """Fold sequence and return both PDB string and mean pLDDT score."""
     model, _ = _load_esmfold(model_name)
     with torch.no_grad():
-        out = model.infer_pdb(sequence)
-    return out
+        output = model.infer_pdb(sequence)
+        
+        # Extract pLDDT scores from the PDB B-factor column
+        plddt_scores = []
+        for line in output.split('\n'):
+            if line.startswith('ATOM'):
+                try:
+                    plddt = float(line[60:66].strip())  # B-factor column contains pLDDT
+                    plddt_scores.append(plddt)
+                except (ValueError, IndexError):
+                    continue
+        
+        mean_plddt = np.mean(plddt_scores) if plddt_scores else np.nan
+        
+    return output, mean_plddt
 
 # -----------------------------------------------------------------------------
 # ESM-IF loader & scoring
@@ -199,13 +213,13 @@ def stability_score(
     sequences: List[str],
     chain_id: str = "A",
     esmfold_model: str = "facebook/esmfold_v1"
-) -> List[Tuple[float, float]]:
+) -> List[Tuple[float, float, float]]:  # Updated return type to include pLDDT
     """
     Batch absolute ΔG prediction:
       1) fold each seq with ESMFold
       2) score each structure with ESM-IF
 
-    Returns list of (raw_IF_score, ΔG_kcal/mol).
+    Returns list of (raw_IF_score, ΔG_kcal/mol, pLDDT).
     """
     _load_esmfold(esmfold_model)
     _load_if_model()
@@ -214,13 +228,13 @@ def stability_score(
     for seq in sequences:
         if not seq or any(aa not in "ACDEFGHIKLMNPQRSTVWY" for aa in seq):
             logger.error(f"Skipping invalid sequence: {seq}")
-            results.append((np.nan, np.nan))
+            results.append((np.nan, np.nan, np.nan))
             continue
 
-        pdb_str = _fold_seq_to_pdb_str(seq, esmfold_model)
+        pdb_str, plddt = _fold_seq_to_pdb_str(seq, esmfold_model)
         raw_if, dg = _score_pdb_str(pdb_str, chain_id)
-        logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol")
-        results.append((raw_if, dg))
+        logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol pLDDT={plddt:.1f}")
+        results.append((raw_if, dg, plddt))
 
     return results
 
@@ -231,7 +245,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(f"Usage: {sys.argv[0]} SEQ1 [SEQ2 ...]")
         sys.exit(1)
-    seqs   = sys.argv[1:]
+    seqs = sys.argv[1:]
     scores = stability_score(seqs)
-    for seq, (raw_if, dg) in zip(seqs, scores):
-        print(f"{seq[:10]}… raw_IF={raw_if:.2f}, ΔG={dg:.2f} kcal/mol")
+    for seq, (raw_if, dg, plddt) in zip(seqs, scores):
+        print(f"{seq[:10]}… raw_IF={raw_if:.2f}, ΔG={dg:.2f} kcal/mol, pLDDT={plddt:.1f}")
