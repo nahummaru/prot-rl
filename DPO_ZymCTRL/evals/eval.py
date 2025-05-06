@@ -141,6 +141,8 @@ def main():
   brenda_sequences = brenda_sequences(brenda_path, ec_label, num_sequences=num_sequences)
 
   # Compare PPL
+  print(f"=== Base v DPO PPL ===")
+
   base_ppls = get_ppl(base_model, tokenizer, brenda_sequences)
   target_ppls = get_ppl(target_model, tokenizer, brenda_sequences)
 
@@ -150,7 +152,12 @@ def main():
   plt.show()
   plt.savefig('ppl_dist_comparison.png')
 
+  print(f"Base PPL: {np.mean(base_ppls)}")
+  print(f"Target PPL: {np.mean(target_ppls)}")
+
   # Compare controlability
+
+  print(f"=== Base v DPO Controlability ===")
 
   target_sequences = {
       "high": [],
@@ -199,6 +206,9 @@ def main():
   plt.savefig('stability_dist_comparison.png')
 
   # Calculate KL divergence between distributions
+
+  # Note: sturges is method for calculating bin num
+  # We need to calculate up front to ensure consistent KL calcs
   num_bins = sturges(max(len(base_stability_scores), len(target_stability_scores["high"]), len(target_stability_scores["medium"]), len(target_stability_scores["low"])))
 
   base_dist, _ = np.histogram(base_stability_scores, bins=num_bins, density=True)
@@ -211,9 +221,18 @@ def main():
   kl_medium = calculate_kl_divergence(medium_dist, base_dist)
   kl_low = calculate_kl_divergence(low_dist, base_dist)
 
+  # TODO: KL div is non-commutative – is this important to consider here?
+  kl_high_to_medium = calculate_kl_divergence(high_dist, medium_dist)
+  kl_high_to_low = calculate_kl_divergence(high_dist, low_dist)
+  kl_medium_to_low = calculate_kl_divergence(medium_dist, low_dist)
+
   print(f"KL Divergence (High vs Base): {kl_high:.4f}")
   print(f"KL Divergence (Medium vs Base): {kl_medium:.4f}")
   print(f"KL Divergence (Low vs Base): {kl_low:.4f}")
+
+  print(f"KL Divergence (High vs Medium): {kl_high_to_medium:.4f}")
+  print(f"KL Divergence (High vs Low): {kl_high_to_low:.4f}")
+  print(f"KL Divergence (Medium vs Low): {kl_medium_to_low:.4f}")
 
   # Plot KL divergences
   plt.figure(figsize=(10, 6))
@@ -225,3 +244,17 @@ def main():
   plt.ylabel('KL Divergence')
   plt.savefig('kl_divergence_comparison.png')
   plt.close()
+
+  # Calculate membership score
+  print(f"=== Membership score (smaller better) ===")
+
+  membership_scores_high = membership_score(brenda_sequences, target_sequences["high"])
+  membership_scores_medium = membership_score(brenda_sequences, target_sequences["medium"])
+  membership_scores_low = membership_score(brenda_sequences, target_sequences["low"])
+
+  print(f"Membership score (high): {np.mean(membership_scores_high)}")
+  print(f"Membership score (medium): {np.mean(membership_scores_medium)}")
+  print(f"Membership score (low): {np.mean(membership_scores_low)}")
+
+if __name__ == "__main__":
+  main()
