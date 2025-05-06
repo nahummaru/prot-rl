@@ -8,6 +8,7 @@ from transformers import GPT2LMHeadModel, AutoTokenizer
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import pandas as pd
 
 from ..stability import stability_score
 
@@ -25,12 +26,71 @@ def brenda_sequences(brenda_path, ec_label, num_sequences=20):
         
         sequences = filtered_df['sequence'].tolist()
 
-        # Return up to num_sequences
+        # Return up to num_sequences if defined
+        if num_sequences is None:
+          return sequences
+        
         return sequences[:num_sequences]
     
     except Exception as e:
         print(f"Error loading BRENDA sequences: {e}")
         return []
+
+def sequence_distance(seq1: str, seq2: str) -> float:
+    """
+    Calculate the normalized Levenshtein distance between two protein sequences.
+    Returns a score between 0 (identical) and 1 (completely different).
+    
+    Args:
+        seq1: First protein sequence string
+        seq2: Second protein sequence string
+        
+    Returns:
+        float: Normalized distance score between 0 and 1
+    """
+    if len(seq1) == 0 or len(seq2) == 0:
+        return 1.0
+        
+    # Create matrix of distances
+    m = len(seq1)
+    n = len(seq2)
+    d = [[0 for x in range(n + 1)] for y in range(m + 1)]
+    
+    # Initialize first row and column
+    for i in range(m + 1):
+        d[i][0] = i
+    for j in range(n + 1):
+        d[0][j] = j
+        
+    # Fill in the rest of the matrix
+    for j in range(1, n + 1):
+        for i in range(1, m + 1):
+            if seq1[i-1] == seq2[j-1]:
+                d[i][j] = d[i-1][j-1]
+            else:
+                d[i][j] = min(
+                    d[i-1][j] + 1,    # deletion
+                    d[i][j-1] + 1,    # insertion
+                    d[i-1][j-1] + 1   # substitution
+                )
+    
+    # Normalize by length of longer sequence
+    max_len = max(m, n)
+    return d[m][n] / max_len
+
+# calculates shortest string distance between each target sequence and all brenda sequences
+def membership_score(brenda_sequences, target_sequences):
+  scores = []
+
+  for target_seq in target_sequences:
+    min_score = None
+    for brenda_seq in brenda_sequences:
+      score = sequence_distance(target_seq, brenda_seq)
+      if min_score is None or score < min_score:
+        min_score = score
+    scores.append(min_score)
+
+  return scores
 
 @torch.no_grad()
 def get_ppl(model, input_ids):
