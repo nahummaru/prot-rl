@@ -14,6 +14,8 @@ import torch
 
 from stability import stability_score
 
+from datasets import load_dataset
+
 def extract_ec_uniprot_pairs(brenda_file_path="brenda.txt"):
   out_data = {}
   # data = {}
@@ -172,6 +174,33 @@ def generate_stability_labels(input_path, output_path, limit=None):
   
   print(f"Added stability labels to {len(rows)} sequences and saved to {output_path}")
 
+def generate_stability_labels_from_hf(ec_number, output_path, limit=None):
+  """
+  Load a CSV with EC numbers and protein sequences, add a stability score column,
+  and save to a new CSV file.
+  
+  Args:
+    input_path (str): Path to the input CSV file.
+    output_path (str): Path to the output CSV file.
+  """
+  
+  ds = load_dataset("AI4PD/ZymCTRL")
+
+  filtered_ds = ds.filter(lambda x: x['text'].startswith(ec_number))
+  
+  # rows = [[x['text'], x['sequence']] for x in filtered_ds]
+  out_dict = {
+    ec_number: []
+  }
+
+  for text in filtered_ds.text:
+    out_dict[ec_number].append(text)
+
+  with open(output_path, 'w', newline='') as outfile:
+    writer = csv.writer(outfile)
+    writer.writerow(['EC_Number', 'Sequence'])
+    writer.writerows(out_dict.items())
+
 if __name__ == "__main__":
   # get_brenda_uniprot_ids(input_path="brenda.txt",
   # output_path="brenda_uniprot_ids.txt")
@@ -192,5 +221,5 @@ if __name__ == "__main__":
   # "brenda/ec_sequences.csv")
 
   # add a limit for now to sanity check
-  limit = 10
+  limit = None
   generate_stability_labels("brenda/ec_sequences.csv", "brenda/ec_sequences_stability.csv", limit=limit)
