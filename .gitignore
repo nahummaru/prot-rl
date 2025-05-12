@@ -76,3 +76,4 @@ train_data_iteration*/
 **/brenda/*.csv
 **/checkpoints/
 **/brenda_results/
+**/brenda_results_**/
