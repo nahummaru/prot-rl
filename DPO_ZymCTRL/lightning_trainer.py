@@ -162,6 +162,7 @@ class ZymCTRLModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         # Ensure we're in training mode
         self.model.train()
+
         loss = self._compute_loss(batch)
         self.log("train_loss", loss, prog_bar=True, sync_dist=True)
         return loss
@@ -408,7 +409,7 @@ def main():
                         help='Path to training data CSV')
     parser.add_argument('--val_data', type=str,
                         help='Path to validation data CSV')
-    parser.add_argument('--batch_size', type=int, default=1,
+    parser.add_argument('--batch_size', type=int, default=16,
                         help='Training batch size')
     parser.add_argument('--learning_rate', type=float, default=1e-5,
                         help='Learning rate')

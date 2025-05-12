@@ -215,12 +215,11 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
             logger.debug(f"Stability score: {sample['stability_score']:.2f}")
             logger.debug(f"== SFT Internal logging end ==")
         
-        # Construct prompt using original ZymCTRL format
-        # stability_tag = None
-        # if self.type == "train":
-        stability_tag = sample['stability_label']
-        
-        prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_tag)
+        prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_level)
+
+        # FOR INTERNAL DEBUGGING
+        # print(prompt)
+        # print(f"Stability score: {sample['stability_score']:.2f}")
         
         # Tokenize prompt
         inputs = self.tokenizer(
@@ -237,9 +236,7 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
         # Return only the necessary fields for the model
         return {
             "input_ids": inputs["input_ids"].squeeze(0),
-            "attention_mask": inputs["attention_mask"].squeeze(0),
-            "stability_score": sample["stability_score"],
-            "perplexity": sample["perplexity"]
+            "attention_mask": inputs["attention_mask"].squeeze(0)
         } 
 
 # DPO layer

@@ -127,6 +127,12 @@ def main():
     parser.add_argument('--tag', type=str, default="",
                       help='Optional tag for experiment tracking')
     
+    # Direct CSV input
+    parser.add_argument('--train_data_csv', type=str, default="",
+                      help='Optional: Direct path to training data CSV file')
+    parser.add_argument('--val_data_csv', type=str, default="",
+                      help='Optional: Direct path to validation data CSV file')
+
     args = parser.parse_args()
     
     print(f"\n=== Starting Iterative Training ===")
@@ -148,6 +154,10 @@ def main():
     print(f"- Tag: {args.tag if args.tag else 'None'}")
     if args.initial_model:
         print(f"- Starting from custom model: {args.initial_model}")
+    if args.train_data_csv:
+        print(f"- Using direct training data CSV: {args.train_data_csv}")
+    if args.val_data_csv:
+        print(f"- Using direct validation data CSV: {args.val_data_csv}")
     print("\n")
     
     current_model = args.initial_model
@@ -158,13 +168,19 @@ def main():
         if args.generate_data:
             run_data_generation(i, args.ec_label, args.sequences_per_iteration, args.tag, current_model)
 
-        # Get path to generated data
-        data_dir = f"training_data_iteration{i}" + (f"_{args.tag}" if args.tag else "")
-        train_data = os.path.join(data_dir, "sequences.csv")
+        # Get path to generated data or use direct CSV input
+        if args.train_data_csv:
+            train_data = args.train_data_csv
+        else:
+            data_dir = f"training_data_iteration{i}" + (f"_{args.tag}" if args.tag else "")
+            train_data = os.path.join(data_dir, "sequences.csv")
 
         # Get validation data
-        val_data_dir = "val_data"
-        val_data = os.path.join(val_data_dir, "sequences.csv")
+        if args.val_data_csv:
+            val_data = args.val_data_csv
+        else:
+            val_data_dir = "val_data"
+            val_data = os.path.join(val_data_dir, "sequences.csv")
         
         # Train model on new data
         run_model_training(
