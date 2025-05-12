@@ -4,6 +4,8 @@ import pandas as pd
 import random
 import logging
 from typing import Optional
+import numpy as np
+from Bio.Align import substitution_matrices
 
 # Set up logging
 logging.basicConfig(
@@ -11,6 +13,82 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def calculate_sequence_identity(seq1: str, seq2: str) -> float:
+    """Calculate sequence identity between two sequences."""
+    if len(seq1) != len(seq2):
+        return 0.0
+    matches = sum(1 for a, b in zip(seq1, seq2) if a == b)
+    return matches / len(seq1)
+
+def calculate_blosum62_score(seq1: str, seq2: str) -> float:
+    """Calculate average BLOSUM62 score per residue between two sequences."""
+    if len(seq1) != len(seq2):
+        return float('-inf')
+    
+    blosum62 = substitution_matrices.load("BLOSUM62")
+    total_score = 0
+    valid_positions = 0
+    
+    for a, b in zip(seq1, seq2):
+        try:
+            score = blosum62.get((a, b), blosum62.get((b, a), 0))
+            total_score += score
+            valid_positions += 1
+        except KeyError:
+            continue
+    
+    return total_score / valid_positions if valid_positions > 0 else float('-inf')
+
+def filter_valid_pairs(
+    sorted_data: pd.DataFrame,
+    top_indices: list,
+    bottom_indices: list,
+    stability_threshold: float,
+    min_sequence_identity: float,
+    min_blosum62_score: float
+) -> list:
+    """
+    Filter pairs of sequences based on stability difference, sequence identity, and BLOSUM62 score.
+    
+    Args:
+        sorted_data: DataFrame containing sequences and their stability scores
+        top_indices: Indices of most stable sequences
+        bottom_indices: Indices of least stable sequences
+        stability_threshold: Minimum stability difference required
+        min_sequence_identity: Minimum sequence identity required (0-1)
+        min_blosum62_score: Minimum BLOSUM62 score per residue required
+        
+    Returns:
+        List of valid pairs (i, j) where i is from top_indices and j is from bottom_indices
+    """
+    valid_pairs = []
+    for i in top_indices:
+        for j in bottom_indices:
+            # Check stability difference
+            diff = abs(sorted_data.iloc[j]['stability_score'] - sorted_data.iloc[i]['stability_score'])
+            if diff < stability_threshold:
+                continue
+            
+            # Get sequences
+            seq1 = sorted_data.iloc[i]['sequence']
+            seq2 = sorted_data.iloc[j]['sequence']
+            
+            # Check sequence identity
+            identity = calculate_sequence_identity(seq1, seq2)
+            
+            if identity < min_sequence_identity:
+                continue
+            
+            
+            # Check BLOSUM62 score
+            blosum_score = calculate_blosum62_score(seq1, seq2)
+            if blosum_score < min_blosum62_score:
+                continue
+            
+            valid_pairs.append((i, j))
+    
+    return valid_pairs
 
 # Underlying dataset
 class ZymCTRLDataset(Dataset):
@@ -167,11 +245,18 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
 # DPO layer
 class ZymCTRLDPODataset(ZymCTRLDataset):
     def __init__(
-        self, **kwargs
+        self,
+        min_sequence_identity: float = 0.05,  # Minimum sequence identity (90%)
+        min_blosum62_score: float = -1.0,    # Minimum BLOSUM62 score per residue
+        **kwargs
     ):
         super().__init__(**kwargs)
+        self.min_sequence_identity = min_sequence_identity
+        self.min_blosum62_score = min_blosum62_score
 
         logger.info(f"Initializing DPO ZymCTRLDataset.")
+        logger.info(f"Using sequence identity threshold: {min_sequence_identity}")
+        logger.info(f"Using BLOSUM62 score threshold: {min_blosum62_score}")
         
         # ===================== Pair Construction Logic =====================
         # The goal is to create pairs of sequences with clear stability differences
@@ -181,21 +266,21 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         # 1. Sort all sequences by stability score (ascending, so most stable first — i.e. have lowest deltaG)
         # 2. Take the top 15% most stable sequences and bottom 15% least stable sequences
         # 3. Create pairs by matching each sequence from top 15% with each from bottom 15%
-        # 4. Filter pairs to ensure they meet minimum stability difference threshold
+        # 4. Filter pairs to ensure they meet:
+        #    - Minimum stability difference threshold
+        #    - Minimum sequence identity (90%)
+        #    - Minimum BLOSUM62 score per residue (-1)
         # 5. Randomly shuffle valid pairs
         # 6. Split pairs into two equal groups:
         #    - First half: prefer stable (chosen=stable, rejected=unstable)
         #    - Second half: prefer unstable (chosen=unstable, rejected=stable)
-        #    This creates a balanced dataset where model learns both preferences
         # ==============================================================
 
         # Sort data by stability score for easier pairing
-        # Note: Lower stability_score (deltaG) = more stable structure
         sorted_data = self.data.sort_values('stability_score', ascending=True)
         n_samples = len(sorted_data)
         
         # Select top 15% (most stable) and bottom 15% least stable sequences
-        # This ensures we only train on clear examples of stable vs unstable
         n_subset = int(n_samples * 0.25)
         top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
         bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
@@ -205,21 +290,42 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         logger.info(f"Top (most stable): {sorted_data.iloc[top_indices]['stability_score'].min():.2f} to {sorted_data.iloc[top_indices]['stability_score'].max():.2f}")
         logger.info(f"Bottom (least stable): {sorted_data.iloc[bottom_indices]['stability_score'].min():.2f} to {sorted_data.iloc[bottom_indices]['stability_score'].max():.2f}")
         
-        # Create pairs between top and bottom groups
-        # Each sequence from top 15% is paired with each sequence from bottom 15%
-        # if they meet the minimum stability difference threshold
-        valid_pairs = []
-        for i in top_indices:
-            for j in bottom_indices:
-                diff = abs(sorted_data.iloc[j]['stability_score'] - sorted_data.iloc[i]['stability_score'])
-                if diff >= self.stability_threshold:
-                    valid_pairs.append((i, j))
+        # Create pairs between top and bottom groups with robust filtering
+        valid_pairs = filter_valid_pairs(
+            sorted_data=sorted_data,
+            top_indices=top_indices,
+            bottom_indices=bottom_indices,
+            stability_threshold=self.stability_threshold,
+            min_sequence_identity=self.min_sequence_identity,
+            min_blosum62_score=self.min_blosum62_score
+        )
         
         if len(valid_pairs) == 0:
-            raise ValueError(f"No valid pairs found with stability difference >= {self.stability_threshold}. "
-                            f"Try lowering the threshold. Min difference: {sorted_data['stability_score'].max() - sorted_data['stability_score'].min():.2f}")
+            raise ValueError(
+                f"No valid pairs found with:\n"
+                f"- Stability difference >= {self.stability_threshold}\n"
+                f"- Sequence identity >= {self.min_sequence_identity}\n"
+                f"- BLOSUM62 score >= {self.min_blosum62_score}\n"
+                f"Try lowering the thresholds. "
+                f"Min stability difference: {sorted_data['stability_score'].max() - sorted_data['stability_score'].min():.2f}"
+            )
         
-        logger.info(f"Found {len(valid_pairs)} valid pairs with sufficient stability difference")
+        logger.info(f"Found {len(valid_pairs)} valid pairs meeting all criteria")
+        
+        # Log some statistics about the filtered pairs
+        if len(valid_pairs) > 0:
+            sample_pairs = random.sample(valid_pairs, min(5, len(valid_pairs)))
+            logger.info("Sample pair statistics:")
+            for i, j in sample_pairs:
+                seq1 = sorted_data.iloc[i]['sequence']
+                seq2 = sorted_data.iloc[j]['sequence']
+                identity = calculate_sequence_identity(seq1, seq2)
+                blosum_score = calculate_blosum62_score(seq1, seq2)
+                stability_diff = abs(sorted_data.iloc[j]['stability_score'] - sorted_data.iloc[i]['stability_score'])
+                logger.info(f"Sample pair:")
+                logger.info(f"- Sequence identity: {identity:.2f}")
+                logger.info(f"- BLOSUM62 score: {blosum_score:.2f}")
+                logger.info(f"- Stability difference: {stability_diff:.2f}")
         
         # Randomly sample pairs and randomly assign preference
         random.shuffle(valid_pairs)
