@@ -34,57 +34,128 @@ def calculatePerplexity(input_ids, model):
     loss, logits = outputs[:2]
     return math.exp(loss)
         
-def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, batch_size):
+def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations=5):
     '''
-    Function to generate sequences from the loaded model.
+    Generate sequences using the pivot-based approach:
+    1. Generate a base sequence
+    2. Select a pivot point
+    3. Generate multiple continuations from that pivot
+    4. Evaluate stability differences
     '''
-    print(f"Generating sequences for label: {label}")
-    input_ids = tokenizer.encode(label,return_tensors='pt').to(device)
+    print(f"Generating pivot-based sequences for label: {label}")
     
-    # Generating sequences
-    outputs = model.generate(
-        input_ids, 
-        top_k=9, 
+    # First generate a base sequence
+    input_ids = tokenizer.encode(label, return_tensors='pt').to(device)
+    base_output = model.generate(
+        input_ids,
+        top_k=9,
         repetition_penalty=1.2,
-        max_length=1024,
-        min_length=10,  # Ensure sequences aren't too short
+        max_length=max_length,
+        min_length=min_length,
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=batch_size,  
-        temperature=1,  # Slightly reduce randomness
-        no_repeat_ngram_size=3  # Prevent repetitive patterns
-    ) 
-    print(f"Generated {len(outputs)} raw sequences")
+        num_return_sequences=1,
+        temperature=1,
+        no_repeat_ngram_size=3
+    )[0]
     
-    # Check sequence sanity, ensure sequences are properly terminated
-    new_outputs = [output for output in outputs if output[-1] == 0 or output[-1] == 1]  # Accept either PAD or EOS token
+    base_sequence = remove_characters(tokenizer.decode(base_output), special_tokens)
     
-    if not new_outputs:
-        print("Warning: No properly terminated sequences found!")
-        return {}
-
-    print(f"After filtering: {len(new_outputs)} valid sequences")
-
-    ppls = []
-    for output in new_outputs:
+    # Select a pivot point (around 60% of the sequence length)
+    pivot_point = int(len(base_sequence) * 0.6)
+    prefix = base_sequence[:pivot_point]
+    
+    # Generate continuations from the pivot point
+    prefix_ids = tokenizer.encode(f"{label}<sep><start>{prefix}", return_tensors='pt').to(device)
+    
+    continuations = model.generate(
+        prefix_ids,
+        top_k=9,
+        repetition_penalty=1.2,
+        max_length=max_length,
+        min_length=min_length,
+        eos_token_id=1,
+        pad_token_id=0,
+        do_sample=True,
+        num_return_sequences=n_continuations,
+        temperature=1.2,  # Slightly higher temperature for more diversity
+        no_repeat_ngram_size=3
+    )
+    
+    # Process continuations
+    sequences = []
+    for output in continuations:
         decoded_output = tokenizer.decode(output)
-
+        sequence = remove_characters(decoded_output, special_tokens)
+        
+        # Calculate perplexity
         logits = model.forward(output).logits
         ppl = perplexity_from_logits(logits, output, None).item()
-
-        ppls.append((decoded_output, ppl))
-
-    # Sort the batch by perplexity, the lower the better
-    ppls.sort(key=lambda i:i[1]) 
-
-    # Final results dictionary without strange characters
-    sequences = {}
-    sequences[label] = [(remove_characters(x[0], special_tokens), x[1]) for x in ppls]
-
+        
+        sequences.append((sequence, ppl))
+    
+    # Sort by perplexity
+    sequences.sort(key=lambda x: x[1])
+    
     return sequences
 
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False):
+def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, use_pivot=False, n_continuations=5):
+    '''
+    Function to generate sequences from the loaded model.
+    '''
+    if use_pivot:
+        sequences = generate_pivot_sequences(label, model, special_tokens, device, tokenizer,
+                                          plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations)
+    else:
+        print(f"Generating sequences for label: {label}")
+        input_ids = tokenizer.encode(label,return_tensors='pt').to(device)
+        
+        # Generating sequences
+        outputs = model.generate(
+            input_ids, 
+            top_k=9, 
+            repetition_penalty=1.2,
+            max_length=1024,
+            min_length=10,  # Ensure sequences aren't too short
+            eos_token_id=1,
+            pad_token_id=0,
+            do_sample=True,
+            num_return_sequences=20,  
+            temperature=1,  # Slightly reduce randomness
+            no_repeat_ngram_size=3  # Prevent repetitive patterns
+        ) 
+        print(f"Generated {len(outputs)} raw sequences")
+        
+        # Check sequence sanity, ensure sequences are properly terminated
+        new_outputs = [output for output in outputs if output[-1] == 0 or output[-1] == 1]  # Accept either PAD or EOS token
+        
+        if not new_outputs:
+            print("Warning: No properly terminated sequences found!")
+            return {}
+
+        print(f"After filtering: {len(new_outputs)} valid sequences")
+
+        ppls = []
+        for output in new_outputs:
+            decoded_output = tokenizer.decode(output)
+
+            logits = model.forward(output).logits
+            ppl = perplexity_from_logits(logits, output, None).item()
+
+            ppls.append((decoded_output, ppl))
+
+        # Sort the batch by perplexity, the lower the better
+        ppls.sort(key=lambda i:i[1]) 
+
+        sequences = [(remove_characters(x[0], special_tokens), x[1]) for x in ppls]
+
+    # Final results dictionary
+    result = {}
+    result[label] = sequences
+    return result
+
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length):
     """
     Add stability scores to sequences and convert to DataFrame.
     Processes one sequence at a time using stability_score.
@@ -148,6 +219,8 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
                     stability_label = "low"
                 else:
                     stability_label = "medium"
+
+                print(f"seq: {seq}")
                     
                 data.append({
                     'sequence': seq,
@@ -212,16 +285,16 @@ if __name__ == '__main__':
                       help="Specify whether this is training or validation data. Affects output directory prefix.")
     parser.add_argument("--plddt_threshold", type=float, default=0.8,
                       help="Minimum pLDDT score for sequence filtering")
-    parser.add_argument("--perplexity_threshold", type=float, default=2,
+    parser.add_argument("--perplexity_threshold", type=float, default=10,
                       help="Maximum perplexity score for sequence filtering")
     parser.add_argument("--min_length", type=int, default=100,
                       help="Minimum sequence length for filtering")
     parser.add_argument("--max_length", type=int, default=300,
                       help="Maximum sequence length for filtering")
-    parser.add_argument("--disable_filtering", action="store_true",
-                      help="Disable all filtering steps")
-    parser.add_argument("--batch_size", type=int, default=20,
-                      help="Number of sequences to generate in each batch")
+    parser.add_argument("--use_pivot", action="store_true",
+                      help="Use pivot-based sequence generation")
+    parser.add_argument("--n_continuations", type=int, default=5,
+                      help="Number of continuations to generate when using pivot-based generation")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -249,7 +322,7 @@ if __name__ == '__main__':
         print(f"\nProcessing batch {i+1}/{args.n_batches}")
         sequences = main(args.ec_label, model, special_tokens, device, tokenizer, 
                          args.plddt_threshold, args.perplexity_threshold, 
-                         args.min_length, args.max_length, args.batch_size)
+                         args.min_length, args.max_length, args.use_pivot, args.n_continuations)
         if args.ec_label in sequences:
             all_sequences[args.ec_label].extend(sequences[args.ec_label])
             
