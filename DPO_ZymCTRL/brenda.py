@@ -1,6 +1,7 @@
 import csv
 import torch
 from tqdm import tqdm
+import argparse
 
 from stability import stability_score
 from utils import perplexity_from_logits
@@ -85,5 +86,8 @@ def generate_stability_labels_from_hf(ec_number, output_path, limit=None):
     print(f"Processed {len(rows)} sequences and saved to {output_path}")
 
 if __name__ == "__main__":
-    limit = None
-    generate_stability_labels_from_hf("4.2.1.1", "brenda/ec_sequences_stability_plddt_perplexity.csv", limit=limit)
+    parser = argparse.ArgumentParser(description="Generate stability labels from HuggingFace dataset")
+    parser.add_argument("--limit", type=int, default=None, help="Limit the number of sequences to process")
+    args = parser.parse_args()
+
+    generate_stability_labels_from_hf("4.2.1.1", "brenda/ec_sequences_stability_plddt_perplexity.csv", limit=args.limit)

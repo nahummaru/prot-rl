@@ -34,7 +34,7 @@ def calculatePerplexity(input_ids, model):
     loss, logits = outputs[:2]
     return math.exp(loss)
         
-def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length):
+def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, batch_size):
     '''
     Function to generate sequences from the loaded model.
     '''
@@ -51,7 +51,7 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=20,  
+        num_return_sequences=batch_size,  
         temperature=1,  # Slightly reduce randomness
         no_repeat_ngram_size=3  # Prevent repetitive patterns
     ) 
@@ -84,7 +84,7 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
 
     return sequences
 
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length):
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False):
     """
     Add stability scores to sequences and convert to DataFrame.
     Processes one sequence at a time using stability_score.
@@ -101,19 +101,19 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
         for seq, ppl in seq_list:
             processed += 1
             # Check if sequence is valid
-            if not all(c in canonical_amino_acids for c in seq):
+            if not disable_filtering and not all(c in canonical_amino_acids for c in seq):
                 print(f"Skipping invalid sequence: {seq[:20]}...")
                 filtered_out += 1
                 continue
             
             # Apply length filter
-            if len(seq) < min_length or len(seq) > max_length:
+            if not disable_filtering and (len(seq) < min_length or len(seq) > max_length):
                 print(f"Filtering out sequence due to length: {len(seq)}")
                 filtered_out += 1
                 continue
 
             # Apply perplexity filter
-            if ppl >= perplexity_threshold:
+            if not disable_filtering and ppl >= perplexity_threshold:
                 print(f"Filtering out sequence due to high perplexity: {ppl}")
                 filtered_out += 1
                 continue
@@ -133,7 +133,7 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
                     raw_if, dg, plddt = stability_results[0]
                 
                 # Apply pLDDT filter
-                if plddt < plddt_threshold:
+                if not disable_filtering and plddt < plddt_threshold:
                     print(f"Filtering out sequence due to low pLDDT: {plddt}")
                     filtered_out += 1
                     continue
@@ -218,6 +218,10 @@ if __name__ == '__main__':
                       help="Minimum sequence length for filtering")
     parser.add_argument("--max_length", type=int, default=300,
                       help="Maximum sequence length for filtering")
+    parser.add_argument("--disable_filtering", action="store_true",
+                      help="Disable all filtering steps")
+    parser.add_argument("--batch_size", type=int, default=20,
+                      help="Number of sequences to generate in each batch")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -245,7 +249,7 @@ if __name__ == '__main__':
         print(f"\nProcessing batch {i+1}/{args.n_batches}")
         sequences = main(args.ec_label, model, special_tokens, device, tokenizer, 
                          args.plddt_threshold, args.perplexity_threshold, 
-                         args.min_length, args.max_length)
+                         args.min_length, args.max_length, args.batch_size)
         if args.ec_label in sequences:
             all_sequences[args.ec_label].extend(sequences[args.ec_label])
             
@@ -268,7 +272,8 @@ if __name__ == '__main__':
     print("\nComputing stability scores...")
     
     df = process_sequences_with_stability(all_sequences, args.plddt_threshold, 
-                                          args.perplexity_threshold, args.min_length, args.max_length)
+                                          args.perplexity_threshold, args.min_length, args.max_length,
+                                          disable_filtering=args.disable_filtering)
     
     # Save results
     print("\nSaving results...")
