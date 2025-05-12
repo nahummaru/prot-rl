@@ -10,6 +10,8 @@
 source ../dpo/bin/activate
 
 python eval_harness.py \
-       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_brenda_sft/" \
+       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints/brenda_epoch_0.ckpt" \
        --eval_type controllability \
-       --output_dir "brenda_results"
+       --output_dir "brenda_results" \
+       --num_samples 100 \
+       --batch_size 10

@@ -84,13 +84,14 @@ from transformers import AutoTokenizer, GPT2LMHeadModel
 import pandas as pd
 import Levenshtein
 
-from stability import stability_score
+from stability import stability_score_batch
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 SPECIAL_TOKENS = ["<start>", "<end>", "<|endoftext|>", "<pad>", " ", "<sep>"]
 STABILITY_TAGS = ["<stability=high>", "<stability=medium>", "<stability=low>"]
+
 
 @dataclass
 class GenerationConfig:
@@ -197,7 +198,7 @@ class BaseEvaluator:
                 top_k=config.top_k,
                 repetition_penalty=config.repetition_penalty,
                 do_sample=config.do_sample,
-                num_return_sequences=self.batch_size,
+                num_return_sequences=1, # needs to be since our prompt batch is already batched!
                 temperature=config.temperature,
             )
             
@@ -207,7 +208,7 @@ class BaseEvaluator:
                 # Clean up sequence
                 clean = text.replace(self.ec_label, "")
 
-                print("Length of sequence: ", len(seq_ids))
+                # print("Length of sequence: ", len(seq_ids))
                 if stability_tag:
                     clean = clean.replace(f"<stability={stability_tag}>", "")
                 clean = self._strip_special(clean).strip()
@@ -231,9 +232,13 @@ class BaseEvaluator:
         return perplexities
     
     def calculate_stability(self, sequences: Sequence[str]) -> List[Dict[str, float]]:
-        """Calculate stability scores for sequences."""
-        scores = stability_score(sequences)
-        return [{"raw_if": raw_if, "dg": dg, "plddt": plddt} for raw_if, dg, plddt in scores]
+        """Calculate stability scores for sequences in batches."""
+        scores = []
+        for i in range(0, len(sequences), self.batch_size):
+            batch = sequences[i:i + self.batch_size]
+            batch_scores = stability_score_batch(batch)
+            scores.extend([{"raw_if": raw_if, "dg": dg, "plddt": plddt} for raw_if, dg, plddt in batch_scores])
+        return scores
     
     @staticmethod
     def _strip_special(seq: str) -> str:
@@ -383,8 +388,8 @@ def main():
     
     parser = argparse.ArgumentParser(description="Evaluate ZymCTRL model performance and controllability")
     parser.add_argument("--model_path", required=True, help="Path to model or checkpoint")
-    parser.add_argument("--num_samples", type=int, default=10, help="Number of sequences to generate")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for generation")
+    parser.add_argument("--num_samples", type=int, default=100, help="Number of sequences to generate")
+    parser.add_argument("--batch_size", type=int, default=10, help="Batch size for generation")
     parser.add_argument("--ec_label", type=str, default="4.2.1.1", help="EC label to use")
     parser.add_argument("--output_dir", type=str, default="eval_results", help="Output directory")
     parser.add_argument(

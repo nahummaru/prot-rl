@@ -74,3 +74,5 @@ train_data_iteration*/
 */slurm-*.log.gz
 
 **/brenda/*.csv
+**/checkpoints/
+**/brenda_results/
