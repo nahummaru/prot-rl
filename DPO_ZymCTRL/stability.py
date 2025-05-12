@@ -18,6 +18,10 @@ from transformers import AutoTokenizer, EsmForProteinFolding
 
 from Bio.PDB import PDBParser
 
+import time 
+
+torch.backends.cuda.matmul.allow_tf32 = True
+
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
@@ -145,29 +149,42 @@ def _load_esmfold(model_name: str = "facebook/esmfold_v1"):
         """ ome weights of EsmForProteinFolding were not initialized from the model checkpoint at facebook/esmfold_v1 and are newly initialized: ['esm.contact_head.regression.bias', 'esm.contact_head.regression.weight']
         You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference."""
         _efs_tokenizer = AutoTokenizer.from_pretrained(model_name)
-        _efs_model = EsmForProteinFolding.from_pretrained(model_name).to(device)
+        _efs_model = EsmForProteinFolding.from_pretrained(model_name)
         _efs_model.eval()
+        _efs_model.esm = _efs_model.esm.half()
+        _efs_model = _efs_model.to(device)
     return _efs_model, device
 
 def _fold_seq_to_pdb_str(sequence: str, model_name: str) -> Tuple[str, float]:
     """Fold sequence and return both PDB string and mean pLDDT score."""
     model, _ = _load_esmfold(model_name)
+
+    results = []
+    mean_plddts = []
+
     with torch.no_grad():
-        output = model.infer_pdb(sequence)
+        start = time.time()
+        print("max len here", max([len(seq) for seq in sequence]))
+        outputs = model.infer_pdbs(sequence)
+        print(f"Time taken to fold single sequence: {time.time() - start} seconds")
         
         # Extract pLDDT scores from the PDB B-factor column
-        plddt_scores = []
-        for line in output.split('\n'):
-            if line.startswith('ATOM'):
-                try:
-                    plddt = float(line[60:66].strip())  # B-factor column contains pLDDT
-                    plddt_scores.append(plddt)
-                except (ValueError, IndexError):
-                    continue
-        
-        mean_plddt = np.mean(plddt_scores) if plddt_scores else np.nan
-        
-    return output, mean_plddt
+        for output in outputs:
+            plddt_scores = []
+            for line in output.split('\n'):
+                if line.startswith('ATOM'):
+                    try:
+                        plddt = float(line[60:66].strip())  # B-factor column contains pLDDT
+                        plddt_scores.append(plddt)
+                    except (ValueError, IndexError):
+                        continue
+            
+            mean_plddt = np.mean(plddt_scores) if plddt_scores else np.nan
+
+            results.append(output)
+            mean_plddts.append(mean_plddt)
+
+    return results, mean_plddts
 
 # -----------------------------------------------------------------------------
 # ESM-IF loader & scoring
@@ -224,7 +241,7 @@ def _score_pdb_str_batch(pdb_strs: List[str], chain_id: str):
     out = []
 
     for i in range(probs.shape[0]):
-        aa_list, wt_scores = score_variants(seq[i], probs[i], alphabet)
+        aa_list, wt_scores = score_variants(seqs[i], probs[i].unsqueeze(0), alphabet)
         raw_if = float(np.sum(wt_scores))
         dg  = _FIT_A * raw_if + _FIT_B
         out.append((raw_if, dg))
@@ -307,17 +324,25 @@ def stability_score_batch(
     pdb_strings = []
     plddts = []
 
+    _sequences = []
+
+    start = time.time()
     for seq in sequences:
         if not seq or any(aa not in "ACDEFGHIKLMNPQRSTVWY" for aa in seq):
             logger.error(f"Skipping invalid sequence: {seq}")
             results.append((np.nan, np.nan))
             continue
+        _sequences.append(seq)
 
-        pdb_str, plddt = _fold_seq_to_pdb_str(seq, esmfold_model)
-        pdb_strings.append(pdb_str)
-        plddts.append(plddt)
+    pdb_strs, plddts = _fold_seq_to_pdb_str(_sequences, esmfold_model)
+    pdb_strings.extend(pdb_strs)
+    plddts.extend(plddts)
 
+    print(f"Time taken to fold sequences: {time.time() - start} seconds")
+
+    start = time.time()
     results = _score_pdb_str_batch(pdb_strings, chain_id)
+    print(f"Time taken to score sequences: {time.time() - start} seconds")
 
     # for pdb_str in pdb_strings:
     #     raw_if, dg = _score_pdb_str(pdb_str, chain_id)

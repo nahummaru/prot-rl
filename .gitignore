@@ -72,3 +72,5 @@ train_data_iteration*/
 */slurm-*.err.gz
 */slurm-*.out.gz
 */slurm-*.log.gz
+
+**/brenda/*.csv
