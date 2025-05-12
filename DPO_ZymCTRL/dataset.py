@@ -148,7 +148,7 @@ class ZymCTRLDataset(Dataset):
 class ZymCTRLSFTDataset(ZymCTRLDataset):
     def __init__(
         self,
-        split_percent=.33,
+        split_percent=.15,
         **kwargs
     ):
         super().__init__(**kwargs)

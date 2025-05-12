@@ -8,4 +8,4 @@
 #SBATCH --gres=gpu:1
 
 source ../dpo/bin/activate
-python train_iterative.py --n_iterations 1 --learning_rate 1e-5 --num_epochs 5 --warmup_steps 100 --weight_decay 0.01 --tag "brenda_sft" --training_mode sft --train_data_csv "brenda/train_sequences.csv" --val_data_csv "brenda/val_sequences.csv" --batch_size 32
+python train_iterative.py --n_iterations 1 --learning_rate 1e-5 --num_epochs 5 --warmup_steps 100 --weight_decay 0.01 --tag "brenda_sft_15" --training_mode sft --train_data_csv "brenda/train_sequences.csv" --val_data_csv "brenda/val_sequences.csv" --batch_size 32
