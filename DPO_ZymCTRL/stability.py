@@ -52,7 +52,7 @@ def run_model(coords, sequence, model, cmplx=False, chain_target='A'):
 
     batch_converter = CoordBatchConverter(_alphabet)
     if isinstance(coords, list) and isinstance(sequence, list):
-        print("running batched stability scoring")
+        print("=== running batched stability scoring ===")
         batch = [(c, None, s) for c, s in zip(coords, sequence)]
     else:
         batch = [(coords, None, sequence)]
@@ -195,9 +195,9 @@ def _pdb_to_coord_seq_batch(pdb_strs: List[str], chain_id: str):
     seqs = []
 
     for pdb_str in pdb_strs:
-        c, s = _pdb_to_coord_seq(pdb_str, chain_id)
-        coords.append(c)
-        seqs.append(s)
+        coord, seq = _pdb_to_coord_seq(pdb_str, chain_id)
+        coords.append(coord)
+        seqs.append(seq)
         
     return coords, seqs
 
@@ -291,6 +291,7 @@ def stability_score_parallel(
 
     results = []
     pdb_strings = []
+    plddts = []
 
     for seq in sequences:
         if not seq or any(aa not in "ACDEFGHIKLMNPQRSTVWY" for aa in seq):
@@ -298,8 +299,9 @@ def stability_score_parallel(
             results.append((np.nan, np.nan))
             continue
 
-        pdb_str = _fold_seq_to_pdb_str(seq, esmfold_model)
+        pdb_str, plddt = _fold_seq_to_pdb_str(seq, esmfold_model)
         pdb_strings.append(pdb_str)
+        plddts.append(plddt)
 
     results = _score_pdb_str_batch(pdb_strings, chain_id)
 
@@ -307,6 +309,8 @@ def stability_score_parallel(
     #     raw_if, dg = _score_pdb_str(pdb_str, chain_id)
     #     logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol")
     #     results.append((raw_if, dg))
+
+    results = [(*e, plddt) for e, plddt in zip(results, plddts)]
 
     return results
 
