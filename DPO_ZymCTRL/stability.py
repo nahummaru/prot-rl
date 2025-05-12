@@ -288,7 +288,7 @@ def stability_score(
 
     return results
 
-def stability_score_parallel(
+def stability_score_batch(
     sequences: List[str],
     chain_id: str = "A",
     esmfold_model: str = "facebook/esmfold_v1"
