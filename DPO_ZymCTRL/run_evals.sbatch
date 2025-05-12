@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu
+#SBATCH --partition=hsu_gpu_priority
 #SBATCH --mem=200GB
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -10,8 +10,6 @@
 source ../dpo/bin/activate
 
 python eval_harness.py \
-       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints/brenda_epoch_0.ckpt" \
+       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_brenda_sft/epoch=4-val_loss=0.44.ckpt" \
        --eval_type controllability \
-       --output_dir "brenda_results" \
-       --num_samples 100 \
-       --batch_size 10
+       --output_dir "brenda_results_epoch4" \

@@ -92,11 +92,13 @@ logger = logging.getLogger(__name__)
 SPECIAL_TOKENS = ["<start>", "<end>", "<|endoftext|>", "<pad>", " ", "<sep>"]
 STABILITY_TAGS = ["<stability=high>", "<stability=medium>", "<stability=low>"]
 
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 
 @dataclass
 class GenerationConfig:
     """Configuration for sequence generation."""
-    max_length: int = 1024
+    max_length: int = 400
     min_length: int = 10
     top_k: int = 9
     repetition_penalty: float = 1.2
