@@ -16,6 +16,8 @@ from esm.inverse_folding.util import (
 )
 from transformers import AutoTokenizer, EsmForProteinFolding
 
+from Bio.PDB import PDBParser
+
 # -----------------------------------------------------------------------------
 # Logging
 # -----------------------------------------------------------------------------
@@ -49,7 +51,11 @@ def run_model(coords, sequence, model, cmplx=False, chain_target='A'):
     device = next(model.parameters()).device
 
     batch_converter = CoordBatchConverter(_alphabet)
-    batch = [(coords, None, sequence)]
+    if isinstance(coords, list) and isinstance(sequence, list):
+        print("=== running batched stability scoring ===")
+        batch = [(c, None, s) for c, s in zip(coords, sequence)]
+    else:
+        batch = [(coords, None, sequence)]
     coords, confidence, strs, tokens, padding_mask = batch_converter(
         batch, device=device)
 
@@ -181,6 +187,50 @@ def _load_if_model():
         _batch_converter = CoordBatchConverter(_alphabet)
     return _if_model, _alphabet, _batch_converter, device
 
+def _pdb_to_coord_seq(pdb_str: str, chain_id: str):
+    # write pdb to temp file
+    tmp = tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb", delete=False)
+    tmp.write(pdb_str)
+    tmp.flush()
+    tmp.close()
+    tmp_path = tmp.name
+
+    try:
+        struct = load_structure(tmp_path, chain_id)
+        coords, seq = extract_coords_from_structure(struct)
+
+    finally:
+        os.remove(tmp_path)
+    
+    return coords, seq
+
+def _pdb_to_coord_seq_batch(pdb_strs: List[str], chain_id: str):
+    coords = []
+    seqs = []
+
+    for pdb_str in pdb_strs:
+        coord, seq = _pdb_to_coord_seq(pdb_str, chain_id)
+        coords.append(coord)
+        seqs.append(seq)
+        
+    return coords, seqs
+
+def _score_pdb_str_batch(pdb_strs: List[str], chain_id: str):
+    coords, seqs = _pdb_to_coord_seq_batch(pdb_strs, chain_id)
+
+    model, alphabet, _, device = _load_if_model()
+    probs = run_model(coords, seqs, model)
+
+    out = []
+
+    for i in range(probs.shape[0]):
+        aa_list, wt_scores = score_variants(seq[i], probs[i], alphabet)
+        raw_if = float(np.sum(wt_scores))
+        dg  = _FIT_A * raw_if + _FIT_B
+        out.append((raw_if, dg))
+
+    return out
+
 def _score_pdb_str(pdb_str: str, chain_id: str) -> Tuple[float, float]:
     # write pdb to temp file
     tmp = tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb", delete=False)
@@ -235,6 +285,46 @@ def stability_score(
         raw_if, dg = _score_pdb_str(pdb_str, chain_id)
         logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol pLDDT={plddt:.1f}")
         results.append((raw_if, dg, plddt))
+
+    return results
+
+def stability_score_batch(
+    sequences: List[str],
+    chain_id: str = "A",
+    esmfold_model: str = "facebook/esmfold_v1"
+) -> List[Tuple[float, float]]:
+    """
+    Batch absolute ΔG prediction:
+      1) fold each seq with ESMFold
+      2) score each structure with ESM-IF
+
+    Returns list of (raw_IF_score, ΔG_kcal/mol).
+    """
+    _load_esmfold(esmfold_model)
+    _load_if_model()
+
+    results = []
+    pdb_strings = []
+    plddts = []
+
+    for seq in sequences:
+        if not seq or any(aa not in "ACDEFGHIKLMNPQRSTVWY" for aa in seq):
+            logger.error(f"Skipping invalid sequence: {seq}")
+            results.append((np.nan, np.nan))
+            continue
+
+        pdb_str, plddt = _fold_seq_to_pdb_str(seq, esmfold_model)
+        pdb_strings.append(pdb_str)
+        plddts.append(plddt)
+
+    results = _score_pdb_str_batch(pdb_strings, chain_id)
+
+    # for pdb_str in pdb_strings:
+    #     raw_if, dg = _score_pdb_str(pdb_str, chain_id)
+    #     logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol")
+    #     results.append((raw_if, dg))
+
+    results = [(*e, plddt) for e, plddt in zip(results, plddts)]
 
     return results
 
