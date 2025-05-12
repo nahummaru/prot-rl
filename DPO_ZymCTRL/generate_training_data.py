@@ -34,7 +34,7 @@ def calculatePerplexity(input_ids, model):
     loss, logits = outputs[:2]
     return math.exp(loss)
         
-def main(label, model, special_tokens, device, tokenizer):
+def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length):
     '''
     Function to generate sequences from the loaded model.
     '''
@@ -75,22 +75,16 @@ def main(label, model, special_tokens, device, tokenizer):
 
         ppls.append((decoded_output, ppl))
 
-    # Compute perplexity for every generated sequence in the batch
-    # ppls = [(tokenizer.decode(output), calculatePerplexity(output, model)) 
-    #         for output in new_outputs]
-
     # Sort the batch by perplexity, the lower the better
     ppls.sort(key=lambda i:i[1]) 
 
     # Final results dictionary without strange characters
-    # TODO parsing out special tokens here feels weird. If we're using the same
-    # tokenizer for encoding/decoding, shouldn't things remain consistent?
     sequences = {}
     sequences[label] = [(remove_characters(x[0], special_tokens), x[1]) for x in ppls]
 
     return sequences
 
-def process_sequences_with_stability(sequences_dict):
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length):
     """
     Add stability scores to sequences and convert to DataFrame.
     Processes one sequence at a time using stability_score.
@@ -101,6 +95,7 @@ def process_sequences_with_stability(sequences_dict):
     # Process sequences one at a time
     total_sequences = sum(len(seq_list) for seq_list in sequences_dict.values())
     processed = 0
+    filtered_out = 0
     
     for label, seq_list in sequences_dict.items():
         for seq, ppl in seq_list:
@@ -108,6 +103,19 @@ def process_sequences_with_stability(sequences_dict):
             # Check if sequence is valid
             if not all(c in canonical_amino_acids for c in seq):
                 print(f"Skipping invalid sequence: {seq[:20]}...")
+                filtered_out += 1
+                continue
+            
+            # Apply length filter
+            if len(seq) < min_length or len(seq) > max_length:
+                print(f"Filtering out sequence due to length: {len(seq)}")
+                filtered_out += 1
+                continue
+
+            # Apply perplexity filter
+            if ppl >= perplexity_threshold:
+                print(f"Filtering out sequence due to high perplexity: {ppl}")
+                filtered_out += 1
                 continue
             
             print(f"\nProcessing sequence {processed}/{total_sequences}")
@@ -119,10 +127,17 @@ def process_sequences_with_stability(sequences_dict):
                 if AVOID_ESM:
                     raw_if = torch.rand(1).item() * 2 - 1
                     dg = torch.rand(1).item() * 2 - 1
+                    plddt = torch.rand(1).item()
                 else: 
                     stability_results = stability_score([seq])
-                    raw_if, dg = stability_results[0]
+                    raw_if, dg, plddt = stability_results[0]
                 
+                # Apply pLDDT filter
+                if plddt < plddt_threshold:
+                    print(f"Filtering out sequence due to low pLDDT: {plddt}")
+                    filtered_out += 1
+                    continue
+
                 # Use deltaG as the stability score
                 stability = dg
                 
@@ -140,7 +155,8 @@ def process_sequences_with_stability(sequences_dict):
                     'stability_score': stability,
                     'stability_raw_if': raw_if,
                     'stability_label': stability_label,
-                    'ec_label': label
+                    'ec_label': label,
+                    'plddt': plddt
                 })
                 
                 # Clear GPU memory after each sequence
@@ -149,8 +165,10 @@ def process_sequences_with_stability(sequences_dict):
             except Exception as e:
                 print(f"Error processing sequence: {str(e)}")
                 print("Skipping problematic sequence and continuing...")
+                filtered_out += 1
                 continue
     
+    print(f"\nQuality control: Filtered out {filtered_out}/{total_sequences} sequences ({filtered_out/total_sequences:.2%})")
     return pd.DataFrame(data)
 
 def save_data(df, output_dir="training_data"):
@@ -192,6 +210,14 @@ if __name__ == '__main__':
                       help="Optional: Path to specific model checkpoint to use. If not provided, uses iteration-based loading.")
     parser.add_argument("--data_type", type=str, default="train", choices=["train", "val"],
                       help="Specify whether this is training or validation data. Affects output directory prefix.")
+    parser.add_argument("--plddt_threshold", type=float, default=0.8,
+                      help="Minimum pLDDT score for sequence filtering")
+    parser.add_argument("--perplexity_threshold", type=float, default=2,
+                      help="Maximum perplexity score for sequence filtering")
+    parser.add_argument("--min_length", type=int, default=100,
+                      help="Minimum sequence length for filtering")
+    parser.add_argument("--max_length", type=int, default=300,
+                      help="Maximum sequence length for filtering")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -217,7 +243,9 @@ if __name__ == '__main__':
     print(f"Generating {args.n_batches} batch(es) of sequences")
     for i in range(args.n_batches):
         print(f"\nProcessing batch {i+1}/{args.n_batches}")
-        sequences = main(args.ec_label, model, special_tokens, device, tokenizer)
+        sequences = main(args.ec_label, model, special_tokens, device, tokenizer, 
+                         args.plddt_threshold, args.perplexity_threshold, 
+                         args.min_length, args.max_length)
         if args.ec_label in sequences:
             all_sequences[args.ec_label].extend(sequences[args.ec_label])
             
@@ -239,7 +267,8 @@ if __name__ == '__main__':
     # Process sequences and add stability scores
     print("\nComputing stability scores...")
     
-    df = process_sequences_with_stability(all_sequences)
+    df = process_sequences_with_stability(all_sequences, args.plddt_threshold, 
+                                          args.perplexity_threshold, args.min_length, args.max_length)
     
     # Save results
     print("\nSaving results...")
