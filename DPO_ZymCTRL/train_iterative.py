@@ -30,16 +30,24 @@ def run_data_generation(iteration, ec_label, n_sequences, tag="", model_path=Non
 def run_model_training(iteration, train_data_path, val_data_path, training_mode="dpo", tag="", model_path=None, 
                       use_weighted_dpo=False, weight_scale=1.0, stability_threshold=1.0,
                       batch_size=1, gradient_accumulation_steps=8, learning_rate=1e-5,
-                      num_epochs=3, warmup_steps=100, weight_decay=0.01):
+                      num_epochs=3, warmup_steps=100, weight_decay=0.01, use_control_tags=False, include_stability_levels=["high", "medium", "low"]):
     """Run the model training for current iteration"""
     output_dir = f"checkpoints_iteration{iteration}" + (f"_{tag}" if tag else "")
     
     # Determine which model to use for training
     if model_path:
-        base_model = model_path
+        if model_path.endswith('.ckpt'):
+            # For .ckpt files, use base model name and pass checkpoint path
+            base_model = "AI4PD/ZymCTRL"
+            checkpoint_path = model_path
+        else:
+            # For HuggingFace format models, use as is
+            base_model = model_path
+            checkpoint_path = None
     else:
         # Use the HuggingFace format model from previous iteration
         base_model = f"checkpoints_iteration{iteration-1}/hf_model" if iteration > 0 else "AI4PD/ZymCTRL"
+        checkpoint_path = None
     
     cmd = [
         "python", "lightning_trainer.py",
@@ -57,6 +65,10 @@ def run_model_training(iteration, train_data_path, val_data_path, training_mode=
         "--tag", tag,
         "--stability_threshold", str(stability_threshold)
     ]
+
+    # Add checkpoint path if using one
+    if checkpoint_path:
+        cmd.extend(["--checkpoint_path", checkpoint_path])
     
     # Add weighted DPO args if using that mode
     if training_mode == "dpo" and use_weighted_dpo:
@@ -68,6 +80,8 @@ def run_model_training(iteration, train_data_path, val_data_path, training_mode=
     print(f"\n=== Training model for iteration {iteration} ===")
     print(f"Training mode: {training_mode}" + (" (weighted)" if use_weighted_dpo else ""))
     print(f"Using model: {base_model}")
+    if checkpoint_path:
+        print(f"Loading from checkpoint: {checkpoint_path}")
     print(f"Training config:")
     print(f"- Batch size: {batch_size}")
     print(f"- Gradient accumulation: {gradient_accumulation_steps}")
@@ -116,6 +130,10 @@ def main():
                       help='Weight decay for AdamW optimizer (default: 0.01)')
     parser.add_argument('--generate_data', type=bool, default=False,
                       help='Generate data (default: False)')
+    parser.add_argument('--use_control_tags', action='store_true',
+                        help='Use control tags in the dataset')
+    parser.add_argument('--include_stability_levels', nargs='*', default=["high"],
+                        help='Include stability levels in the dataset, options: high, medium, low')
     
     # Model and checkpoint parameters
     parser.add_argument('--initial_model', type=str, default="",
@@ -198,7 +216,10 @@ def main():
             learning_rate=args.learning_rate,
             num_epochs=args.num_epochs,
             warmup_steps=args.warmup_steps,
-            weight_decay=args.weight_decay
+            weight_decay=args.weight_decay, 
+            use_control_tags=args.use_control_tags, 
+            include_stability_levels=args.include_stability_levels
+
         )
         
         # Update current model path for next iteration if using checkpoints

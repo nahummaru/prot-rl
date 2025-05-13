@@ -253,6 +253,8 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         min_sequence_identity: float = 0.05,  # Minimum sequence identity (90%)
         min_blosum62_score: float = -1.0,    # Minimum BLOSUM62 score per residue
         split_percent: float = 0.25,
+        n_pairs_to_sample: int = 1000,  # Number of pairs to sample and create
+        max_sampling_attempts: int = 10000,  # Maximum number of attempts to find valid pairs
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -262,60 +264,112 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         logger.info(f"Initializing DPO ZymCTRLDataset.")
         logger.info(f"Using sequence identity threshold: {min_sequence_identity}")
         logger.info(f"Using BLOSUM62 score threshold: {min_blosum62_score}")
+        logger.info(f"Will attempt to create {n_pairs_to_sample} valid pairs")
         
-        # ===================== Pair Construction Logic =====================
-        # The goal is to create pairs of sequences with clear stability differences
-        # for training the DPO (Direct Preference Optimization) model.
-        #
-        # Process:
-        # 1. Sort all sequences by stability score (ascending, so most stable first — i.e. have lowest deltaG)
-        # 2. Take the top 15% most stable sequences and bottom 15% least stable sequences
-        # 3. Create pairs by matching each sequence from top 15% with each from bottom 15%
-        # 4. Filter pairs to ensure they meet:
-        #    - Minimum stability difference threshold
-        #    - Minimum sequence identity (90%)
-        #    - Minimum BLOSUM62 score per residue (-1)
-        # 5. Randomly shuffle valid pairs
-        # 6. Split pairs into two equal groups:
-        #    - First half: prefer stable (chosen=stable, rejected=unstable)
-        #    - Second half: prefer unstable (chosen=unstable, rejected=stable)
-        # ==============================================================
-
         # Sort data by stability score for easier pairing
         sorted_data = self.data.sort_values('stability_score', ascending=True)
         n_samples = len(sorted_data)
         
-        # Select top 15% (most stable) and bottom 15% least stable sequences
+        # Select top and bottom sequences
         n_subset = int(n_samples * split_percent)
         top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
         bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
         
-        logger.info(f"Using top and bottom {n_subset} samples each (15% of total)")
+        # Calculate maximum possible pairs
+        max_possible_pairs = min(len(top_indices), len(bottom_indices))
+        if n_pairs_to_sample > max_possible_pairs:
+            logger.warning(f"Requested {n_pairs_to_sample} pairs but only {max_possible_pairs} possible "
+                         f"when each sequence can only be used once. Reducing target to {max_possible_pairs}.")
+            n_pairs_to_sample = max_possible_pairs
+        
+        logger.info(f"Using top and bottom {n_subset} samples each ({split_percent*100}% of total)")
         logger.info(f"Stability ranges:")
         logger.info(f"Top (most stable): {sorted_data.iloc[top_indices]['stability_score'].min():.2f} to {sorted_data.iloc[top_indices]['stability_score'].max():.2f}")
         logger.info(f"Bottom (least stable): {sorted_data.iloc[bottom_indices]['stability_score'].min():.2f} to {sorted_data.iloc[bottom_indices]['stability_score'].max():.2f}")
         
-        # Create pairs between top and bottom groups with robust filtering
-        valid_pairs = filter_valid_pairs(
-            sorted_data=sorted_data,
-            top_indices=top_indices,
-            bottom_indices=bottom_indices,
-            stability_threshold=self.stability_threshold,
-            min_sequence_identity=self.min_sequence_identity,
-            min_blosum62_score=self.min_blosum62_score
-        )
+        # Pre-compute all stability differences between top and bottom groups
+        logger.info("Pre-computing stability differences...")
+        top_scores = sorted_data.iloc[top_indices]['stability_score'].values
+        bottom_scores = sorted_data.iloc[bottom_indices]['stability_score'].values
+        
+        # Create meshgrid for vectorized computation
+        top_mesh, bottom_mesh = np.meshgrid(top_scores, bottom_scores)
+        stability_diffs = np.abs(bottom_mesh - top_mesh)
+        
+        # Get valid stability difference pairs
+        valid_stability_pairs = np.argwhere(stability_diffs >= self.stability_threshold)
+        
+        if len(valid_stability_pairs) == 0:
+            raise ValueError(
+                f"No pairs found meeting stability threshold >= {self.stability_threshold}\n"
+                f"Max stability difference: {stability_diffs.max():.2f}"
+            )
+            
+        logger.info(f"Found {len(valid_stability_pairs)} pairs meeting stability threshold")
+        
+        # Shuffle the valid pairs
+        np.random.shuffle(valid_stability_pairs)
+        
+        # Now process these pairs in order until we find enough valid ones
+        valid_pairs = []
+        used_top_indices = set()
+        used_bottom_indices = set()
+        processed_count = 0
+        
+        logger.info("Finding valid pairs meeting all criteria...")
+        for bottom_idx_local, top_idx_local in valid_stability_pairs:
+            # Convert local indices to global indices
+            top_idx = top_indices[top_idx_local]
+            bottom_idx = bottom_indices[bottom_idx_local]
+            
+            # Skip if either sequence is already used
+            if top_idx in used_top_indices or bottom_idx in used_bottom_indices:
+                continue
+                
+            # Get sequences
+            seq1 = sorted_data.iloc[top_idx]['sequence']
+            seq2 = sorted_data.iloc[bottom_idx]['sequence']
+            
+            # Check sequence identity
+            identity = calculate_sequence_identity(seq1, seq2)
+            if identity < self.min_sequence_identity:
+                continue
+                
+            # Check BLOSUM62 score
+            blosum_score = calculate_blosum62_score(seq1, seq2)
+            if blosum_score < self.min_blosum62_score:
+                continue
+            
+            # Valid pair found
+            valid_pairs.append((top_idx, bottom_idx))
+            used_top_indices.add(top_idx)
+            used_bottom_indices.add(bottom_idx)
+            
+            processed_count += 1
+            
+            # Log progress every 1000 pairs
+            if processed_count % 1000 == 0:
+                logger.info(f"Processed {processed_count} pairs, found {len(valid_pairs)} valid ones")
+            
+            # Check if we have enough pairs
+            if len(valid_pairs) >= n_pairs_to_sample:
+                break
         
         if len(valid_pairs) == 0:
             raise ValueError(
-                f"No valid pairs found with:\n"
+                f"No valid pairs found meeting all criteria:\n"
                 f"- Stability difference >= {self.stability_threshold}\n"
                 f"- Sequence identity >= {self.min_sequence_identity}\n"
-                f"- BLOSUM62 score >= {self.min_blosum62_score}\n"
-                f"Try lowering the thresholds. "
-                f"Min stability difference: {sorted_data['stability_score'].max() - sorted_data['stability_score'].min():.2f}"
+                f"- BLOSUM62 score >= {self.min_blosum62_score}"
             )
         
+        if len(valid_pairs) < n_pairs_to_sample:
+            logger.warning(f"Could only find {len(valid_pairs)} valid pairs, "
+                         f"which is less than the requested {n_pairs_to_sample} pairs")
+        
         logger.info(f"Found {len(valid_pairs)} valid pairs meeting all criteria")
+        logger.info(f"Used {len(used_top_indices)} unique sequences from top group")
+        logger.info(f"Used {len(used_bottom_indices)} unique sequences from bottom group")
         
         # Log some statistics about the filtered pairs
         if len(valid_pairs) > 0:
@@ -332,19 +386,14 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
                 logger.info(f"- BLOSUM62 score: {blosum_score:.2f}")
                 logger.info(f"- Stability difference: {stability_diff:.2f}")
         
-        # Randomly sample pairs and randomly assign preference
-        random.shuffle(valid_pairs)
-        
         # Create balanced dataset with both preference directions
-        n_pairs = len(valid_pairs) // 2  # We'll create balanced pairs
         self.paired_data = []
         
-        # First half of pairs: teach model to prefer stable sequences
+        # Create pairs: teach model to prefer stable sequences
         # For these pairs, the more stable sequence (lower score) is marked as "chosen"
         # and gets the "high" stability tag
-        for i in range(n_pairs):
-            idx1, idx2 = valid_pairs[i]
-            seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
+        for i, j in valid_pairs:
+            seq1, seq2 = sorted_data.iloc[i], sorted_data.iloc[j]
             if seq1['stability_score'] < seq2['stability_score']:  # Lower score = more stable
                 chosen, rejected = seq1, seq2
             else:
@@ -352,36 +401,14 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
                 
             self.paired_data.append({
                 'chosen_sequence': chosen['sequence'],
-                'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
-                'rejected_sequence': rejected['sequence'],
-                'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
+                'chosen_perplexity': chosen.get('perplexity', 0), # default to 0 if perplexity not in data
+                'rejected_sequence': rejected['sequence'], 
+                'rejected_perplexity': rejected.get('perplexity', 0), # default to 0 if perplexity not in data
                 'chosen_score': chosen['stability_score'],
                 'rejected_score': rejected['stability_score'],
                 'ec_label': chosen['ec_label'],  # Both sequences have same EC number
                 'prefer_stable': True
             })
-        
-        # Second half of pairs: teach model to prefer unstable sequences
-        # For these pairs, the less stable sequence (higher score) is marked as "chosen"
-        # and gets the "low" stability tag
-        # for i in range(n_pairs, min(2 * n_pairs, len(valid_pairs))):
-        #     idx1, idx2 = valid_pairs[i]
-        #     seq1, seq2 = sorted_data.iloc[idx1], sorted_data.iloc[idx2]
-        #     if seq1['stability_score'] > seq2['stability_score']:  # Higher score = less stable
-        #         chosen, rejected = seq1, seq2
-        #     else:
-        #         chosen, rejected = seq2, seq1
-                
-        #     self.paired_data.append({
-        #         'chosen_sequence': chosen['sequence'],
-        #         'chosen_perplexity': chosen['perplexity'], # we add perplexity for validation evals
-        #         'rejected_sequence': rejected['sequence'],
-        #         'rejected_perplexity': rejected['perplexity'], # we add perplexity for validation evals
-        #         'chosen_score': chosen['stability_score'],
-        #         'rejected_score': rejected['stability_score'],
-        #         'ec_label': chosen['ec_label'],
-        #         'prefer_stable': False
-        #     })
         
         # Convert to DataFrame for easier indexing
         self.paired_data = pd.DataFrame(self.paired_data)
@@ -415,6 +442,10 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
 
         chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], stability_tag)
         rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], stability_tag)
+
+        print("chosen prompt: ", chosen_prompt)
+        print("rejected prompt: ", rejected_prompt)
+        print("-------")
         
         # Tokenize both sequences
         chosen_inputs = self.tokenizer(
