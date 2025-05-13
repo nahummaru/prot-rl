@@ -46,7 +46,9 @@ class ZymCTRLModule(pl.LightningModule):
         training_mode: str = "sft",
         max_length: int = 512,
         use_weighted_dpo: bool = False,
-        weight_scale: float = 1.0
+        weight_scale: float = 1.0,
+        use_control_tags: bool = False,
+        include_stability_levels: List[str] = None
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -87,6 +89,8 @@ class ZymCTRLModule(pl.LightningModule):
         self.max_length = max_length
         self.use_weighted_dpo = use_weighted_dpo
         self.weight_scale = weight_scale
+        self.use_control_tags = use_control_tags
+        self.include_stability_levels = include_stability_levels or []
 
     def forward(self, **inputs):
         return self.model(**inputs)
@@ -280,6 +284,9 @@ class ZymCTRLTrainer:
         use_weighted_dpo: bool = False,
         weight_scale: float = 1.0,
         weight_decay: float = 0.01,
+        use_control_tags: bool = False,
+        include_stability_levels: List[str] = None,
+        split_percent: float = 1.0,
         **trainer_kwargs
     ):
         self.model_name = model_name
@@ -293,6 +300,9 @@ class ZymCTRLTrainer:
         self.use_weighted_dpo = use_weighted_dpo
         self.weight_scale = weight_scale
         self.weight_decay = weight_decay
+        self.use_control_tags = use_control_tags
+        self.include_stability_levels = include_stability_levels or []
+        self.split_percent = split_percent
         self.trainer_kwargs = trainer_kwargs
         
         os.makedirs(output_dir, exist_ok=True)
@@ -315,7 +325,9 @@ class ZymCTRLTrainer:
             beta=self.beta,
             training_mode=training_mode,
             use_weighted_dpo=self.use_weighted_dpo,
-            weight_scale=self.weight_scale
+            weight_scale=self.weight_scale,
+            use_control_tags=self.use_control_tags,
+            include_stability_levels=self.include_stability_levels
         )
         
         # Create dataloaders
@@ -441,6 +453,12 @@ def main():
                         help='Iteration number for the training data')
     parser.add_argument('--stability_threshold', type=float, default=1.0,
                         help='Minimum stability score difference for DPO pairs')
+    parser.add_argument('--use_control_tags', action='store_true',
+                        help='Use control tags in the dataset')
+    parser.add_argument('--include_stability_levels', nargs='*', default=["high"],
+                        help='Include stability levels in the dataset, options: high, medium, low')
+    parser.add_argument('--split_percent', type=float, default=.33,
+                        help='Percentage of the dataset to use for training')
     
     args = parser.parse_args()
     
@@ -456,21 +474,25 @@ def main():
         use_weighted_dpo=args.use_weighted_dpo,
         weight_scale=args.weight_scale,
         warmup_steps=args.warmup_steps,
-        weight_decay=args.weight_decay
+        weight_decay=args.weight_decay,
+        use_control_tags=args.use_control_tags,
+        include_stability_levels=args.include_stability_levels,
+        split_percent=args.split_percent
     )
     
     # Initialize tokenizer for dataset
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
-    # Add special tokens to tokenizer
-    special_tokens_dict = {
-        "additional_special_tokens": [
-            "<stability=high>",
-            "<stability=medium>",
-            "<stability=low>"
-        ]
-    }
-    tokenizer.add_special_tokens(special_tokens_dict)
+    if args.use_control_tags:
+        # Add special tokens to tokenizer
+        special_tokens_dict = {
+            "additional_special_tokens": [
+                "<stability=high>",
+                "<stability=medium>",
+                "<stability=low>"
+            ]
+        }
+        tokenizer.add_special_tokens(special_tokens_dict)
     
     dataset_type = ZymCTRLSFTDataset if args.training_mode == "sft" else ZymCTRLDPODataset
     # Load datasets
@@ -480,6 +502,9 @@ def main():
         max_length=args.max_length,
         training_mode=args.training_mode,
         stability_threshold=args.stability_threshold,
+        use_control_tags=args.use_control_tags,
+        include_stability_levels=args.include_stability_levels,
+        split_percent=args.split_percent,
         type="train"
     )
     
@@ -491,6 +516,9 @@ def main():
             max_length=args.max_length,
             training_mode=args.training_mode,
             stability_threshold=args.stability_threshold,
+            use_control_tags=args.use_control_tags,
+            include_stability_levels=args.include_stability_levels,
+            split_percent=args.split_percent,
             type="val"
         )
     

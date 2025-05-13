@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import pandas as pd
 import random
 import logging
-from typing import Optional
+from typing import Optional, List
 import numpy as np
 from Bio.Align import substitution_matrices
 
@@ -99,7 +99,9 @@ class ZymCTRLDataset(Dataset):
         max_length: int = 512,
         training_mode: str = "sft",
         stability_threshold: float = 0,
-        type: str = "train"
+        type: str = "train",
+        use_control_tags: bool = True,
+        include_stability_levels: Optional[List[str]] = None
     ):
         self.tokenizer = tokenizer
         logger.info(f"Initializing ZymCTRLDataset in {training_mode} mode")
@@ -114,6 +116,8 @@ class ZymCTRLDataset(Dataset):
         self.max_length = max_length
         self.training_mode = training_mode
         self.stability_threshold = stability_threshold
+        self.use_control_tags = use_control_tags
+        self.include_stability_levels = include_stability_levels or ['high', 'medium', 'low']
         logger.info(f"Using stability threshold: {stability_threshold}")
         
         # Load data
@@ -132,7 +136,7 @@ class ZymCTRLDataset(Dataset):
 
     def _format_sequence(self, ec_label: str, sequence: str, stability_level: Optional[str] = None) -> str:
         """Format sequence according to original ZymCTRL paper format"""
-        if stability_level is not None:
+        if self.use_control_tags and stability_level in self.include_stability_levels:
             # Add stability control tag right after EC label
             return f"{ec_label}<stability={stability_level}><sep><start>{sequence}<end><|endoftext|>"
         return f"{ec_label}<sep><start>{sequence}<end><|endoftext|>"
@@ -180,11 +184,14 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
         # Store the indices and their corresponding stability levels
         self.sample_indices = []
         for idx in top_indices:
-            self.sample_indices.append((idx, 'high'))  # Most stable = high stability
+            if 'high' in self.include_stability_levels:
+                self.sample_indices.append((idx, 'high'))  # Most stable = high stability
         for idx in middle_indices:
-            self.sample_indices.append((idx, 'medium'))
+            if 'medium' in self.include_stability_levels:
+                self.sample_indices.append((idx, 'medium'))
         for idx in bottom_indices:
-            self.sample_indices.append((idx, 'low'))  # Least stable = low stability
+            if 'low' in self.include_stability_levels:
+                self.sample_indices.append((idx, 'low'))  # Least stable = low stability
             
         # Store sorted data for easy access during training
         self.sorted_data = sorted_data
@@ -218,8 +225,8 @@ class ZymCTRLSFTDataset(ZymCTRLDataset):
         prompt = self._format_sequence(sample['ec_label'], sample['sequence'], stability_level)
 
         # FOR INTERNAL DEBUGGING
-        # print(prompt)
-        # print(f"Stability score: {sample['stability_score']:.2f}")
+        print(prompt)
+        print(f"Stability score: {sample['stability_score']:.2f}")
         
         # Tokenize prompt
         inputs = self.tokenizer(
@@ -245,6 +252,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         self,
         min_sequence_identity: float = 0.05,  # Minimum sequence identity (90%)
         min_blosum62_score: float = -1.0,    # Minimum BLOSUM62 score per residue
+        split_percent: float = 0.25,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -278,7 +286,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         n_samples = len(sorted_data)
         
         # Select top 15% (most stable) and bottom 15% least stable sequences
-        n_subset = int(n_samples * 0.25)
+        n_subset = int(n_samples * split_percent)
         top_indices = list(range(n_subset))  # Most stable (lowest deltaG)
         bottom_indices = list(range(n_samples - n_subset, n_samples))  # Least stable (highest deltaG)
         
@@ -402,7 +410,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         
         # Construct prompts with stability control tags
         stability_tag = None
-        if self.type == "train":
+        if self.type == "train" and self.use_control_tags:
             stability_tag = 'high' if pair['prefer_stable'] else 'low'
 
         chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], stability_tag)
@@ -440,4 +448,3 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
                 "perplexity": torch.tensor(pair['rejected_perplexity'], dtype=torch.float)
             }
         }
-    

@@ -155,7 +155,7 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
     result[label] = sequences
     return result
 
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length):
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False):
     """
     Add stability scores to sequences and convert to DataFrame.
     Processes one sequence at a time using stability_score.
@@ -281,11 +281,13 @@ if __name__ == '__main__':
     parser.add_argument("--tag", type=str, default="")
     parser.add_argument("--model_path", type=str, default="",
                       help="Optional: Path to specific model checkpoint to use. If not provided, uses iteration-based loading.")
+    parser.add_argument("--checkpoint_path", type=str, default="",
+                      help="Optional: Path to a specific model checkpoint to load.")
     parser.add_argument("--data_type", type=str, default="train", choices=["train", "val"],
                       help="Specify whether this is training or validation data. Affects output directory prefix.")
     parser.add_argument("--plddt_threshold", type=float, default=0.8,
                       help="Minimum pLDDT score for sequence filtering")
-    parser.add_argument("--perplexity_threshold", type=float, default=10,
+    parser.add_argument("--perplexity_threshold", type=float, default=5,
                       help="Maximum perplexity score for sequence filtering")
     parser.add_argument("--min_length", type=int, default=100,
                       help="Minimum sequence length for filtering")
@@ -295,6 +297,8 @@ if __name__ == '__main__':
                       help="Use pivot-based sequence generation")
     parser.add_argument("--n_continuations", type=int, default=5,
                       help="Number of continuations to generate when using pivot-based generation")
+    parser.add_argument("--disable_filtering", action="store_true",
+                      help="Disable filtering of sequences based on pLDDT and perplexity")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -311,6 +315,17 @@ if __name__ == '__main__':
     print(f"Loading {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
+
+    # Load checkpoint if provided
+    if args.checkpoint_path:
+        print(f"Loading checkpoint from {args.checkpoint_path}")
+        checkpoint = torch.load(args.checkpoint_path, map_location=device)
+        # Remove unexpected keys from the checkpoint
+        checkpoint = {k: v for k, v in checkpoint.items() if k in model.state_dict()}
+        model.load_state_dict(checkpoint, strict=False)
+        # Resize token embeddings if necessary
+        model.resize_token_embeddings(len(tokenizer))
+
     special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>', ' ']
 
     # Generate sequences in batches

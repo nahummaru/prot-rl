@@ -10,6 +10,6 @@
 source ../dpo/bin/activate
 
 python eval_harness.py \
-       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_brenda_sft/epoch=4-val_loss=0.44.ckpt" \
+       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_brenda_sft_15/epoch=2-val_loss=0.49.ckpt" \
        --eval_type controllability \
-       --output_dir "brenda_results_epoch4" \
+       --output_dir "brenda_results_sft_15" \
