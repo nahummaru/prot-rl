@@ -4,6 +4,7 @@ from stability import stability_score
 import pandas as pd
 from tqdm import tqdm
 import json
+from typing import Optional
 
 from utils import perplexity_from_logits
 
@@ -34,7 +35,14 @@ def calculatePerplexity(input_ids, model):
     loss, logits = outputs[:2]
     return math.exp(loss)
         
-def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations=5):
+def format_sequence(ec_label: str, sequence: str, stability_level: Optional[str] = None) -> str:
+    """Format sequence according to original ZymCTRL paper format"""
+    if stability_level is not None:
+        # Add stability control tag right after EC label
+        return f"{ec_label}<stability={stability_level}><sep><start>"
+    return f"{ec_label}<sep><start>>"
+
+def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations=5, control_tag=""):
     '''
     Generate sequences using the pivot-based approach:
     1. Generate a base sequence
@@ -44,8 +52,17 @@ def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, pl
     '''
     print(f"Generating pivot-based sequences for label: {label}")
     
-    # First generate a base sequence
-    input_ids = tokenizer.encode(label, return_tensors='pt').to(device)
+    # Extract stability level from control tag if present
+    stability_level = None
+    if control_tag:
+        if control_tag.startswith('<stability=') and control_tag.endswith('>'):
+            stability_level = control_tag[11:-1]  # Extract 'high', 'medium', or 'low'
+    
+    # Format input with proper structure
+    input_text = format_sequence(label, "", stability_level)  # Empty sequence for generation
+
+    breakpoint()
+    input_ids = tokenizer.encode(input_text, return_tensors='pt').to(device)
     base_output = model.generate(
         input_ids,
         top_k=9,
@@ -94,22 +111,37 @@ def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, pl
         ppl = perplexity_from_logits(logits, output, None).item()
         
         sequences.append((sequence, ppl))
+    # Print each sequence and its perplexity
+    print("\nGenerated sequences and their perplexities:")
+    for i, (seq, ppl) in enumerate(sequences, 1):
+        print(f"\nSequence {i}:")
+        print(f"Perplexity: {ppl:.2f}")
+        print(f"Sequence: {seq}")
+    print("--------------------------------")
     
     # Sort by perplexity
     sequences.sort(key=lambda x: x[1])
     
     return sequences
 
-def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, use_pivot=False, n_continuations=5):
+def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, use_pivot=False, n_continuations=5, control_tag=""):
     '''
     Function to generate sequences from the loaded model.
     '''
     if use_pivot:
         sequences = generate_pivot_sequences(label, model, special_tokens, device, tokenizer,
-                                          plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations)
+                                          plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations, control_tag)
     else:
         print(f"Generating sequences for label: {label}")
-        input_ids = tokenizer.encode(label,return_tensors='pt').to(device)
+        # Extract stability level from control tag if present
+        stability_level = None
+        if control_tag:
+            if control_tag.startswith('<stability=') and control_tag.endswith('>'):
+                stability_level = control_tag[11:-1]  # Extract 'high', 'medium', or 'low'
+        
+        # Format input with proper structure
+        input_text = format_sequence(label, "", stability_level)  # Empty sequence for generation
+        input_ids = tokenizer.encode(input_text, return_tensors='pt').to(device)
         
         # Generating sequences
         outputs = model.generate(
@@ -117,13 +149,13 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
             top_k=9, 
             repetition_penalty=1.2,
             max_length=1024,
-            min_length=10,  # Ensure sequences aren't too short
+            min_length=10,
             eos_token_id=1,
             pad_token_id=0,
             do_sample=True,
             num_return_sequences=20,  
-            temperature=1,  # Slightly reduce randomness
-            no_repeat_ngram_size=3  # Prevent repetitive patterns
+            temperature=1,
+            no_repeat_ngram_size=3
         ) 
         print(f"Generated {len(outputs)} raw sequences")
         
@@ -155,7 +187,7 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
     result[label] = sequences
     return result
 
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length):
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering):
     """
     Add stability scores to sequences and convert to DataFrame.
     Processes one sequence at a time using stability_score.
@@ -295,6 +327,10 @@ if __name__ == '__main__':
                       help="Use pivot-based sequence generation")
     parser.add_argument("--n_continuations", type=int, default=5,
                       help="Number of continuations to generate when using pivot-based generation")
+    parser.add_argument("--disable_filtering", action="store_true", default=True,
+                      help="Disable sequence filtering based on pLDDT and perplexity thresholds")
+    parser.add_argument("--control_tag", type=str, default="",
+                      help="Control tag to use for all generations (e.g. '<stability=high>')")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -302,15 +338,68 @@ if __name__ == '__main__':
     
     # Load model and tokenizer
     if args.model_path:
-        model_name = args.model_path
-    elif args.iteration_num == 0:
-        model_name = 'AI4PD/ZymCTRL'
-    else:
-        model_name = f'output_iteration{args.iteration_num}'
+        print(f"Loading model from checkpoint: {args.model_path}")
+        if args.model_path.endswith('.ckpt'):
+            # First load base model architecture
+            model = GPT2LMHeadModel.from_pretrained('AI4PD/ZymCTRL').to(device)
+            tokenizer = AutoTokenizer.from_pretrained('AI4PD/ZymCTRL')
+
+            special_tokens_dict = {
+                "additional_special_tokens": [
+                    "<stability=high>",
+                    "<stability=medium>",
+                    "<stability=low>"
+                ]
+            }
+            tokenizer.add_special_tokens(special_tokens_dict)
+            model.resize_token_embeddings(len(tokenizer))
     
-    print(f"Loading {model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
+            
+            # Load checkpoint state dict
+            checkpoint = torch.load(args.model_path, map_location=device)
+            if 'state_dict' in checkpoint:
+                state_dict = checkpoint['state_dict']
+            else:
+                state_dict = checkpoint
+                
+            # Remove 'model.' prefix from state dict keys
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith('model.'):
+                    new_key = k[6:]  # Remove 'model.' prefix
+                    new_state_dict[new_key] = v
+                else:
+                    new_state_dict[k] = v
+                    
+            # Load the processed state dict
+            model.load_state_dict(new_state_dict)
+            print("Successfully loaded checkpoint weights")
+        else:
+            model = GPT2LMHeadModel.from_pretrained(args.model_path).to(device)
+            tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    else:
+        # Use iteration-based or default model
+        if args.iteration_num == 0:
+            model_name = 'AI4PD/ZymCTRL'
+        else:
+            model_name = f'output_iteration{args.iteration_num}'
+        
+        print(f"Loading model: {model_name}")
+        model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        # Only add special tokens for base model
+        if model_name == 'AI4PD/ZymCTRL':
+            special_tokens_dict = {
+                "additional_special_tokens": [
+                    "<stability=high>",
+                    "<stability=medium>",
+                    "<stability=low>"
+                ]
+            }
+            tokenizer.add_special_tokens(special_tokens_dict)
+            model.resize_token_embeddings(len(tokenizer))
+
     special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>', ' ']
 
     # Generate sequences in batches
@@ -322,7 +411,8 @@ if __name__ == '__main__':
         print(f"\nProcessing batch {i+1}/{args.n_batches}")
         sequences = main(args.ec_label, model, special_tokens, device, tokenizer, 
                          args.plddt_threshold, args.perplexity_threshold, 
-                         args.min_length, args.max_length, args.use_pivot, args.n_continuations)
+                         args.min_length, args.max_length, args.use_pivot, 
+                         args.n_continuations, args.control_tag)
         if args.ec_label in sequences:
             all_sequences[args.ec_label].extend(sequences[args.ec_label])
             
