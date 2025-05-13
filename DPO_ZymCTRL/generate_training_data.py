@@ -1,6 +1,6 @@
 import torch, os, math, argparse
 from transformers import GPT2LMHeadModel, AutoTokenizer
-from stability import stability_score
+from stability import stability_score, stability_score_batch
 import pandas as pd
 from tqdm import tqdm
 import json
@@ -42,7 +42,7 @@ def format_sequence(ec_label: str, sequence: str, stability_level: Optional[str]
         return f"{ec_label}<stability={stability_level}><sep><start>"
     return f"{ec_label}<sep><start>>"
 
-def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations=5, control_tag=""):
+def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations=8, control_tag=""):
     '''
     Generate sequences using the pivot-based approach:
     1. Generate a base sequence
@@ -61,7 +61,6 @@ def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, pl
     # Format input with proper structure
     input_text = format_sequence(label, "", stability_level)  # Empty sequence for generation
 
-    breakpoint()
     input_ids = tokenizer.encode(input_text, return_tensors='pt').to(device)
     base_output = model.generate(
         input_ids,
@@ -72,19 +71,26 @@ def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, pl
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=1,
+        num_return_sequences=n_continuations,
         temperature=1,
         no_repeat_ngram_size=3
-    )[0]
+    )
     
-    base_sequence = remove_characters(tokenizer.decode(base_output), special_tokens)
+    # base_sequence = remove_characters(tokenizer.decode(base_output), special_tokens)
     
-    # Select a pivot point (around 60% of the sequence length)
-    pivot_point = int(len(base_sequence) * 0.6)
-    prefix = base_sequence[:pivot_point]
+    # Select a pivot point
+    # Find the minimum sequence length by looking at non-padding tokens
+    # (assuming padding token is 0)
+    non_pad_mask = (base_output != 0).int()
+    seq_lengths = non_pad_mask.sum(dim=1)
+    min_seq_length = seq_lengths.min().item()
     
-    # Generate continuations from the pivot point
-    prefix_ids = tokenizer.encode(f"{label}<sep><start>{prefix}", return_tensors='pt').to(device)
+    # Generate pivot point that's shorter than the minimum sequence length
+    # Use 25-75% of the minimum length to ensure good context
+    pivot = torch.randint(int(min_seq_length * 0.25), int(min_seq_length * 0.75), (1,)).item()
+    
+    # Get the prefix up to the pivot point
+    prefix_ids = base_output[:,:pivot]
     
     continuations = model.generate(
         prefix_ids,
@@ -95,7 +101,7 @@ def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, pl
         eos_token_id=1,
         pad_token_id=0,
         do_sample=True,
-        num_return_sequences=n_continuations,
+        num_return_sequences=1,
         temperature=1.2,  # Slightly higher temperature for more diversity
         no_repeat_ngram_size=3
     )
@@ -190,19 +196,24 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
 def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering):
     """
     Add stability scores to sequences and convert to DataFrame.
-    Processes one sequence at a time using stability_score.
+    Processes sequences in batches using stability_score_batch.
     """
     data = []
     canonical_amino_acids = set("ACDEFGHIKLMNPQRSTVWY")
     
-    # Process sequences one at a time
+    # Process sequences in batches
     total_sequences = sum(len(seq_list) for seq_list in sequences_dict.values())
     processed = 0
     filtered_out = 0
+
+    batch_size = 16  # Adjust based on available GPU memory
+    current_batch = []
+    current_batch_info = []  # Store (label, seq, ppl) for each sequence in batch
     
     for label, seq_list in sequences_dict.items():
         for seq, ppl in seq_list:
             processed += 1
+            
             # Check if sequence is valid
             if not disable_filtering and not all(c in canonical_amino_acids for c in seq):
                 print(f"Skipping invalid sequence: {seq[:20]}...")
@@ -224,49 +235,58 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
             print(f"\nProcessing sequence {processed}/{total_sequences}")
             
             try:
-                # Get stability score for single sequence
-                stability_results = stability_score([seq])
-                raw_if, dg, plddt = stability_results[0]
-                if AVOID_ESM:
-                    raw_if = torch.rand(1).item() * 2 - 1
-                    dg = torch.rand(1).item() * 2 - 1
-                    plddt = torch.rand(1).item()
-                else: 
-                    stability_results = stability_score([seq])
-                    raw_if, dg, plddt = stability_results[0]
+                # Add sequence to current batch
+                current_batch.append(seq)
+                current_batch_info.append((label, seq, ppl))
                 
-                # Apply pLDDT filter
-                if not disable_filtering and plddt < plddt_threshold:
-                    print(f"Filtering out sequence due to low pLDDT: {plddt}")
-                    filtered_out += 1
-                    continue
-
-                # Use deltaG as the stability score
-                stability = dg
-                
-                # Assign stability label based on deltaG
-                if stability < -2.0:  # More negative = more stable
-                    stability_label = "high"
-                elif stability > 0.0:
-                    stability_label = "low"
-                else:
-                    stability_label = "medium"
-
-                print(f"seq: {seq}")
+                # Process batch when it's full or on the last sequence
+                if len(current_batch) == batch_size or processed == total_sequences:
+                    # Get stability scores for the batch
+                    if AVOID_ESM:
+                        stability_results = [(torch.rand(1).item() * 2 - 1, 
+                                           torch.rand(1).item() * 2 - 1,
+                                           torch.rand(1).item()) for _ in range(len(current_batch))]
+                    else:
+                        stability_results = stability_score_batch(current_batch)
                     
-                data.append({
-                    'sequence': seq,
-                    'perplexity': ppl,
-                    'stability_score': stability,
-                    'stability_raw_if': raw_if,
-                    'stability_label': stability_label,
-                    'ec_label': label,
-                    'plddt': plddt
-                })
-                
-                # Clear GPU memory after each sequence
-                torch.cuda.empty_cache()
-                
+                    # Process results for each sequence in the batch
+                    for (label, seq, ppl), (raw_if, dg, plddt) in zip(current_batch_info, stability_results):
+                        # Apply pLDDT filter
+                        if not disable_filtering and plddt < plddt_threshold:
+                            print(f"Filtering out sequence due to low pLDDT: {plddt}")
+                            filtered_out += 1
+                            continue
+
+                        # Use deltaG as the stability score
+                        stability = dg
+                        
+                        # Assign stability label based on deltaG
+                        if stability < -2.0:  # More negative = more stable
+                            stability_label = "high"
+                        elif stability > 0.0:
+                            stability_label = "low"
+                        else:
+                            stability_label = "medium"
+
+                        print(f"seq: {seq}")
+                            
+                        data.append({
+                            'sequence': seq,
+                            'perplexity': ppl,
+                            'stability_score': stability,
+                            'stability_raw_if': raw_if,
+                            'stability_label': stability_label,
+                            'ec_label': label,
+                            'plddt': plddt
+                        })
+                    
+                    # Clear batch
+                    current_batch = []
+                    current_batch_info = []
+                    
+                    # Clear GPU memory after each batch
+                    torch.cuda.empty_cache()
+                    
             except Exception as e:
                 print(f"Error processing sequence: {str(e)}")
                 print("Skipping problematic sequence and continuing...")
@@ -287,7 +307,7 @@ def save_data(df, output_dir="training_data"):
     print(f"LOG: Saving full dataset to csv at {output_dir}/sequences.csv")
     print("--------------------------------")
 
-    df.to_csv(f"{output_dir}/sequences.csv", index=False)
+    df.to_csv(f"{output_dir}/sequences_{args.control_tag.replace('<', '').replace('>', '')}.csv", index=False)
     
     # Save FASTA files by stability label
     for label in ['high', 'low', 'medium']:
@@ -428,7 +448,7 @@ if __name__ == '__main__':
     os.makedirs(output_dir, exist_ok=True)
 
     # Save sequences to file 
-    with open(f"{output_dir}/sequences.json", "w") as f:
+    with open(f"{output_dir}/sequences_{args.control_tag.replace('<', '').replace('>', '')}.json", "w") as f:
         json.dump(all_sequences, f)
     
     # Process sequences and add stability scores

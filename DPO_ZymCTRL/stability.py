@@ -299,7 +299,8 @@ def stability_score(
             continue
 
         pdb_str, plddt = _fold_seq_to_pdb_str(seq, esmfold_model)
-        raw_if, dg = _score_pdb_str(pdb_str, chain_id)
+        plddt = plddt[0]
+        raw_if, dg = _score_pdb_str(pdb_str[0], chain_id)
         logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol pLDDT={plddt:.1f}")
         results.append((raw_if, dg, plddt))
 
