@@ -253,7 +253,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         min_sequence_identity: float = 0.05,  # Minimum sequence identity (90%)
         min_blosum62_score: float = -1.0,    # Minimum BLOSUM62 score per residue
         split_percent: float = 0.25,
-        n_pairs_to_sample: int = 1000,  # Number of pairs to sample and create
+        n_pairs_to_sample: int = 50,  # Number of pairs to sample and create
         max_sampling_attempts: int = 10000,  # Maximum number of attempts to find valid pairs
         **kwargs
     ):
@@ -437,15 +437,15 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         
         # Construct prompts with stability control tags
         stability_tag = None
-        if self.type == "train" and self.use_control_tags:
+        if self.use_control_tags:
             stability_tag = 'high' if pair['prefer_stable'] else 'low'
-
         chosen_prompt = self._format_sequence(pair['ec_label'], pair['chosen_sequence'], stability_tag)
         rejected_prompt = self._format_sequence(pair['ec_label'], pair['rejected_sequence'], stability_tag)
 
-        print("chosen prompt: ", chosen_prompt)
-        print("rejected prompt: ", rejected_prompt)
-        print("-------")
+        if idx == 0:
+            print("chosen prompt: ", chosen_prompt)
+            print("rejected prompt: ", rejected_prompt)
+            print("-------")
         
         # Tokenize both sequences
         chosen_inputs = self.tokenizer(

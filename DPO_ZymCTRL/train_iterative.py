@@ -30,7 +30,9 @@ def run_data_generation(iteration, ec_label, n_sequences, tag="", model_path=Non
 def run_model_training(iteration, train_data_path, val_data_path, training_mode="dpo", tag="", model_path=None, 
                       use_weighted_dpo=False, weight_scale=1.0, stability_threshold=1.0,
                       batch_size=1, gradient_accumulation_steps=8, learning_rate=1e-5,
-                      num_epochs=3, warmup_steps=100, weight_decay=0.01, use_control_tags=False, include_stability_levels=["high", "medium", "low"]):
+                      num_epochs=3, warmup_steps=100, weight_decay=0.01, use_control_tags=False, 
+                      include_stability_levels=["high", "medium", "low"],
+                      n_pairs_to_sample=50, max_sampling_attempts=10000):
     """Run the model training for current iteration"""
     output_dir = f"checkpoints_iteration{iteration}" + (f"_{tag}" if tag else "")
     
@@ -63,7 +65,9 @@ def run_model_training(iteration, train_data_path, val_data_path, training_mode=
         "--training_mode", training_mode,
         "--output_dir", output_dir,
         "--tag", tag,
-        "--stability_threshold", str(stability_threshold)
+        "--stability_threshold", str(stability_threshold),
+        "--n_pairs_to_sample", str(n_pairs_to_sample),
+        "--max_sampling_attempts", str(max_sampling_attempts)
     ]
 
     # Add checkpoint path if using one
@@ -76,6 +80,11 @@ def run_model_training(iteration, train_data_path, val_data_path, training_mode=
             "--use_weighted_dpo",
             "--weight_scale", str(weight_scale)
         ])
+    
+    # Add control tags flag if enabled
+    if use_control_tags:
+        cmd.append("--use_control_tags")
+        cmd.extend(["--include_stability_levels"] + include_stability_levels)
     
     print(f"\n=== Training model for iteration {iteration} ===")
     print(f"Training mode: {training_mode}" + (" (weighted)" if use_weighted_dpo else ""))
@@ -134,6 +143,11 @@ def main():
                         help='Use control tags in the dataset')
     parser.add_argument('--include_stability_levels', nargs='*', default=["high"],
                         help='Include stability levels in the dataset, options: high, medium, low')
+    # Add new DPO dataset parameters
+    parser.add_argument('--n_pairs_to_sample', type=int, default=50,
+                      help='Number of pairs to sample and create for DPO training (default: 50)')
+    parser.add_argument('--max_sampling_attempts', type=int, default=10000,
+                      help='Maximum number of attempts to find valid pairs for DPO training (default: 10000)')
     
     # Model and checkpoint parameters
     parser.add_argument('--initial_model', type=str, default="",
@@ -167,6 +181,8 @@ def main():
     print(f"- Epochs: {args.num_epochs}")
     print(f"- Warmup steps: {args.warmup_steps}")
     print(f"- Weight decay: {args.weight_decay}")
+    print(f"- Use control tags: {args.use_control_tags}")
+    print(f"- Include stability levels: {args.include_stability_levels}")
     if args.use_weighted_dpo:
         print(f"- Weight scale: {args.weight_scale}")
     print(f"- Tag: {args.tag if args.tag else 'None'}")
@@ -218,8 +234,9 @@ def main():
             warmup_steps=args.warmup_steps,
             weight_decay=args.weight_decay, 
             use_control_tags=args.use_control_tags, 
-            include_stability_levels=args.include_stability_levels
-
+            include_stability_levels=args.include_stability_levels,
+            n_pairs_to_sample=args.n_pairs_to_sample,
+            max_sampling_attempts=args.max_sampling_attempts
         )
         
         # Update current model path for next iteration if using checkpoints

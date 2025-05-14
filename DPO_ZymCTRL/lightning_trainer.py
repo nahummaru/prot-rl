@@ -503,6 +503,10 @@ def main():
                         help='Percentage of the dataset to use for training')
     parser.add_argument('--checkpoint_path', type=str,
                         help='Path to a checkpoint file to load (.ckpt)')
+    parser.add_argument('--n_pairs_to_sample', type=int, default=50,
+                        help='Number of pairs to sample and create for DPO training (default: 50)')
+    parser.add_argument('--max_sampling_attempts', type=int, default=10000,
+                        help='Maximum number of attempts to find valid pairs for DPO training (default: 10000)')
     
     args = parser.parse_args()
     
@@ -550,7 +554,9 @@ def main():
         use_control_tags=args.use_control_tags,
         include_stability_levels=args.include_stability_levels,
         split_percent=args.split_percent,
-        type="train"
+        type="train",
+        n_pairs_to_sample=args.n_pairs_to_sample,
+        max_sampling_attempts=args.max_sampling_attempts
     )
     
     val_dataset = None
@@ -564,7 +570,9 @@ def main():
             use_control_tags=args.use_control_tags,
             include_stability_levels=args.include_stability_levels,
             split_percent=args.split_percent,
-            type="val"
+            type="val",
+            n_pairs_to_sample=args.n_pairs_to_sample,
+            max_sampling_attempts=args.max_sampling_attempts
         )
     
     # Train model
