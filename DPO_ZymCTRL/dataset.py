@@ -117,7 +117,16 @@ class ZymCTRLDataset(Dataset):
         logger.info(f"Using stability threshold: {stability_threshold}")
         
         # Load data
-        self.data = pd.read_csv(data_path)
+        if isinstance(data_path, list):
+            # Load and concatenate multiple CSV files
+            dfs = []
+            for path in data_path:
+                df = pd.read_csv(path)
+                dfs.append(df)
+            self.data = pd.concat(dfs, ignore_index=True)
+        else:
+            # Load single CSV file
+            self.data = pd.read_csv(data_path)
         logger.info(f"Loaded {len(self.data)} sequences")
         
         # Log stability score distribution

@@ -206,11 +206,11 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
     processed = 0
     filtered_out = 0
 
-    batch_size = 16  # Adjust based on available GPU memory
+    batch_size = 8  # Adjust based on available GPU memory
     current_batch = []
     current_batch_info = []  # Store (label, seq, ppl) for each sequence in batch
     
-    for label, seq_list in sequences_dict.items():
+    for label, seq_list in tqdm(sequences_dict.items(), desc="Scoring sequences"):
         for seq, ppl in seq_list:
             processed += 1
             
@@ -351,106 +351,121 @@ if __name__ == '__main__':
                       help="Disable sequence filtering based on pLDDT and perplexity thresholds")
     parser.add_argument("--control_tag", type=str, default="",
                       help="Control tag to use for all generations (e.g. '<stability=high>')")
+    parser.add_argument("--sequence_path", type=str, default="", 
+                      help="Path to pre-generated sequences")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    
-    # Load model and tokenizer
-    if args.model_path:
-        print(f"Loading model from checkpoint: {args.model_path}")
-        if args.model_path.endswith('.ckpt'):
-            # First load base model architecture
-            model = GPT2LMHeadModel.from_pretrained('AI4PD/ZymCTRL').to(device)
-            tokenizer = AutoTokenizer.from_pretrained('AI4PD/ZymCTRL')
 
-            special_tokens_dict = {
-                "additional_special_tokens": [
-                    "<stability=high>",
-                    "<stability=medium>",
-                    "<stability=low>"
-                ]
-            }
-            tokenizer.add_special_tokens(special_tokens_dict)
-            model.resize_token_embeddings(len(tokenizer))
-    
-            
-            # Load checkpoint state dict
-            checkpoint = torch.load(args.model_path, map_location=device)
-            if 'state_dict' in checkpoint:
-                state_dict = checkpoint['state_dict']
-            else:
-                state_dict = checkpoint
-                
-            # Remove 'model.' prefix from state dict keys
-            new_state_dict = {}
-            for k, v in state_dict.items():
-                if k.startswith('model.'):
-                    new_key = k[6:]  # Remove 'model.' prefix
-                    new_state_dict[new_key] = v
-                else:
-                    new_state_dict[k] = v
-                    
-            # Load the processed state dict
-            model.load_state_dict(new_state_dict)
-            print("Successfully loaded checkpoint weights")
-        else:
-            model = GPT2LMHeadModel.from_pretrained(args.model_path).to(device)
-            tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    if args.sequence_path != "":
+        with open(args.sequence_path, "r") as f:
+            all_sequences = json.load(f)
     else:
-        # Use iteration-based or default model
-        if args.iteration_num == 0:
-            model_name = 'AI4PD/ZymCTRL'
+        # Load model and tokenizer
+        if args.model_path:
+            print(f"Loading model from checkpoint: {args.model_path}")
+            if args.model_path.endswith('.ckpt'):
+                # First load base model architecture
+                model = GPT2LMHeadModel.from_pretrained('AI4PD/ZymCTRL').to(device)
+                tokenizer = AutoTokenizer.from_pretrained('AI4PD/ZymCTRL')
+
+                special_tokens_dict = {
+                    "additional_special_tokens": [
+                        "<stability=high>",
+                        "<stability=medium>",
+                        "<stability=low>"
+                    ]
+                }
+                tokenizer.add_special_tokens(special_tokens_dict)
+                model.resize_token_embeddings(len(tokenizer))
+        
+                
+                # Load checkpoint state dict
+                checkpoint = torch.load(args.model_path, map_location=device)
+                if 'state_dict' in checkpoint:
+                    state_dict = checkpoint['state_dict']
+                else:
+                    state_dict = checkpoint
+                    
+                # Remove 'model.' prefix from state dict keys
+                new_state_dict = {}
+                for k, v in state_dict.items():
+                    if k.startswith('model.'):
+                        new_key = k[6:]  # Remove 'model.' prefix
+                        new_state_dict[new_key] = v
+                    else:
+                        new_state_dict[k] = v
+                        
+                # Load the processed state dict
+                model.load_state_dict(new_state_dict)
+                print("Successfully loaded checkpoint weights")
+            else:
+                model = GPT2LMHeadModel.from_pretrained(args.model_path).to(device)
+                tokenizer = AutoTokenizer.from_pretrained(args.model_path)
         else:
-            model_name = f'output_iteration{args.iteration_num}'
-        
-        print(f"Loading model: {model_name}")
-        model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-        # Only add special tokens for base model
-        if model_name == 'AI4PD/ZymCTRL':
-            special_tokens_dict = {
-                "additional_special_tokens": [
-                    "<stability=high>",
-                    "<stability=medium>",
-                    "<stability=low>"
-                ]
-            }
-            tokenizer.add_special_tokens(special_tokens_dict)
-            model.resize_token_embeddings(len(tokenizer))
-
-    special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>', ' ']
-
-    # Generate sequences in batches
-    all_sequences = {}
-    all_sequences[args.ec_label] = []
-    
-    print(f"Generating {args.n_batches} batch(es) of sequences")
-    for i in range(args.n_batches):
-        print(f"\nProcessing batch {i+1}/{args.n_batches}")
-        sequences = main(args.ec_label, model, special_tokens, device, tokenizer, 
-                         args.plddt_threshold, args.perplexity_threshold, 
-                         args.min_length, args.max_length, args.use_pivot, 
-                         args.n_continuations, args.control_tag)
-        if args.ec_label in sequences:
-            all_sequences[args.ec_label].extend(sequences[args.ec_label])
+            # Use iteration-based or default model
+            if args.iteration_num == 0:
+                model_name = 'AI4PD/ZymCTRL'
+            else:
+                model_name = f'output_iteration{args.iteration_num}'
             
-        # Clear GPU memory after each batch
-        torch.cuda.empty_cache()
+            print(f"Loading model: {model_name}")
+            model = GPT2LMHeadModel.from_pretrained(model_name).to(device)
+            tokenizer = AutoTokenizer.from_pretrained(model_name)
+            
+            # Only add special tokens for base model
+            if model_name == 'AI4PD/ZymCTRL':
+                special_tokens_dict = {
+                    "additional_special_tokens": [
+                        "<stability=high>",
+                        "<stability=medium>",
+                        "<stability=low>"
+                    ]
+                }
+                tokenizer.add_special_tokens(special_tokens_dict)
+                model.resize_token_embeddings(len(tokenizer))
 
+        special_tokens = ['<start>', '<end>', '<|endoftext|>', '<pad>', '<sep>', ' ']
+
+        # Generate sequences in batches
+        all_sequences = {}
+        all_sequences[args.ec_label] = []
+        
+        print(f"Generating {args.n_batches} batch(es) of sequences")
+        for i in tqdm(range(args.n_batches), desc="Generating sequences"):
+            print(f"\nProcessing batch {i+1}/{args.n_batches}")
+            sequences = main(args.ec_label, model, special_tokens, device, tokenizer, 
+                            args.plddt_threshold, args.perplexity_threshold, 
+                            args.min_length, args.max_length, args.use_pivot, 
+                            args.n_continuations, args.control_tag)
+            if args.ec_label in sequences:
+                all_sequences[args.ec_label].extend(sequences[args.ec_label])
+                
+            # Clear GPU memory after each batch
+            torch.cuda.empty_cache()
+
+        if args.data_type == "train":
+            output_dir = f"train_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
+        else:  # val
+            output_dir = f"val_data" + (f"_{args.tag}" if args.tag else "")
+
+        # Make this directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Save sequences to file 
+        with open(f"{output_dir}/sequences_{args.control_tag.replace('<', '').replace('>', '')}.json", "w") as f:
+            json.dump(all_sequences, f)
+    
     if args.data_type == "train":
         output_dir = f"train_data_iteration{args.iteration_num}" + (f"_{args.tag}" if args.tag else "")
     else:  # val
         output_dir = f"val_data" + (f"_{args.tag}" if args.tag else "")
 
-    # Make this directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
+    # Sort sequences by length for each EC label
+    for ec_label in all_sequences:
+        all_sequences[ec_label].sort(key=lambda x: len(x[0]))  # Sort by sequence length (x[0] is the sequence string)
 
-    # Save sequences to file 
-    with open(f"{output_dir}/sequences_{args.control_tag.replace('<', '').replace('>', '')}.json", "w") as f:
-        json.dump(all_sequences, f)
-    
     # Process sequences and add stability scores
     print("\nComputing stability scores...")
     
