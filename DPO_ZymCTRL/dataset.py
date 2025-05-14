@@ -460,7 +460,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         chosen_inputs = self.tokenizer(
             chosen_prompt,
             max_length=self.max_length,
-            # padding="max_length",
+            padding="max_length",
             truncation=True,
             return_tensors="pt"
         )
@@ -468,7 +468,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         rejected_inputs = self.tokenizer(
             rejected_prompt,
             max_length=self.max_length,
-            # padding="max_length",
+            padding="max_length",
             truncation=True,
             return_tensors="pt"
         )
