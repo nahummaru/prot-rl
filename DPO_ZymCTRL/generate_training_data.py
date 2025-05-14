@@ -193,6 +193,7 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
     result[label] = sequences
     return result
 
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False):
 def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering):
     """
     Add stability scores to sequences and convert to DataFrame.
@@ -333,11 +334,13 @@ if __name__ == '__main__':
     parser.add_argument("--tag", type=str, default="")
     parser.add_argument("--model_path", type=str, default="",
                       help="Optional: Path to specific model checkpoint to use. If not provided, uses iteration-based loading.")
+    parser.add_argument("--checkpoint_path", type=str, default="",
+                      help="Optional: Path to a specific model checkpoint to load.")
     parser.add_argument("--data_type", type=str, default="train", choices=["train", "val"],
                       help="Specify whether this is training or validation data. Affects output directory prefix.")
     parser.add_argument("--plddt_threshold", type=float, default=0.8,
                       help="Minimum pLDDT score for sequence filtering")
-    parser.add_argument("--perplexity_threshold", type=float, default=10,
+    parser.add_argument("--perplexity_threshold", type=float, default=5,
                       help="Maximum perplexity score for sequence filtering")
     parser.add_argument("--min_length", type=int, default=100,
                       help="Minimum sequence length for filtering")

@@ -46,26 +46,67 @@ class ZymCTRLModule(pl.LightningModule):
         training_mode: str = "sft",
         max_length: int = 512,
         use_weighted_dpo: bool = False,
-        weight_scale: float = 1.0
+        weight_scale: float = 1.0,
+        use_control_tags: bool = False,
+        include_stability_levels: List[str] = None,
+        checkpoint_path: str = None
     ):
         super().__init__()
         self.save_hyperparameters()
         
         # Load model and tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
+        if checkpoint_path and checkpoint_path.endswith('.ckpt'):
+            print(f"Loading model from checkpoint: {checkpoint_path}")
+            # First load base model architecture
+            self.model = GPT2LMHeadModel.from_pretrained('AI4PD/ZymCTRL')
+            self.tokenizer = AutoTokenizer.from_pretrained('AI4PD/ZymCTRL', clean_up_tokenization_spaces=True)
 
-        # add special tokens to tokenizer
-        special_tokens_dict = {
-            "additional_special_tokens": [
-                "<stability=high>",
-                "<stability=medium>",
-                "<stability=low>"
-            ]
-        }
-        self.tokenizer.add_special_tokens(special_tokens_dict)
+            # Add special tokens to tokenizer
+            special_tokens_dict = {
+                "additional_special_tokens": [
+                    "<stability=high>",
+                    "<stability=medium>",
+                    "<stability=low>"
+                ]
+            }
+            self.tokenizer.add_special_tokens(special_tokens_dict)
+            self.model.resize_token_embeddings(len(self.tokenizer))
             
-        self.model = GPT2LMHeadModel.from_pretrained(model_name)
-        self.model.resize_token_embeddings(len(self.tokenizer))
+            # Load checkpoint state dict
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            if 'state_dict' in checkpoint:
+                state_dict = checkpoint['state_dict']
+            else:
+                state_dict = checkpoint
+                
+            # Remove 'model.' prefix from state dict keys if present
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith('model.'):
+                    new_key = k[6:]  # Remove 'model.' prefix
+                    new_state_dict[new_key] = v
+                else:
+                    new_state_dict[k] = v
+                    
+            # Load the processed state dict
+            self.model.load_state_dict(new_state_dict)
+            print("Successfully loaded checkpoint weights")
+        else:
+            print(f"Loading model from {model_name}")
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name, clean_up_tokenization_spaces=True)
+
+            # Add special tokens to tokenizer
+            special_tokens_dict = {
+                "additional_special_tokens": [
+                    "<stability=high>",
+                    "<stability=medium>",
+                    "<stability=low>"
+                ]
+            }
+            self.tokenizer.add_special_tokens(special_tokens_dict)
+                
+            self.model = GPT2LMHeadModel.from_pretrained(model_name)
+            self.model.resize_token_embeddings(len(self.tokenizer))
 
         # Make sure model knows about padding token
         if self.model.config.pad_token_id is None:
@@ -87,6 +128,8 @@ class ZymCTRLModule(pl.LightningModule):
         self.max_length = max_length
         self.use_weighted_dpo = use_weighted_dpo
         self.weight_scale = weight_scale
+        self.use_control_tags = use_control_tags
+        self.include_stability_levels = include_stability_levels or []
 
     def forward(self, **inputs):
         return self.model(**inputs)
@@ -280,6 +323,10 @@ class ZymCTRLTrainer:
         use_weighted_dpo: bool = False,
         weight_scale: float = 1.0,
         weight_decay: float = 0.01,
+        use_control_tags: bool = False,
+        include_stability_levels: List[str] = None,
+        split_percent: float = 1.0,
+        checkpoint_path: str = None,
         **trainer_kwargs
     ):
         self.model_name = model_name
@@ -293,6 +340,10 @@ class ZymCTRLTrainer:
         self.use_weighted_dpo = use_weighted_dpo
         self.weight_scale = weight_scale
         self.weight_decay = weight_decay
+        self.use_control_tags = use_control_tags
+        self.include_stability_levels = include_stability_levels or []
+        self.split_percent = split_percent
+        self.checkpoint_path = checkpoint_path
         self.trainer_kwargs = trainer_kwargs
         
         os.makedirs(output_dir, exist_ok=True)
@@ -315,7 +366,10 @@ class ZymCTRLTrainer:
             beta=self.beta,
             training_mode=training_mode,
             use_weighted_dpo=self.use_weighted_dpo,
-            weight_scale=self.weight_scale
+            weight_scale=self.weight_scale,
+            use_control_tags=self.use_control_tags,
+            include_stability_levels=self.include_stability_levels,
+            checkpoint_path=self.checkpoint_path
         )
         
         # Create dataloaders
@@ -441,6 +495,18 @@ def main():
                         help='Iteration number for the training data')
     parser.add_argument('--stability_threshold', type=float, default=1.0,
                         help='Minimum stability score difference for DPO pairs')
+    parser.add_argument('--use_control_tags', action='store_true',
+                        help='Use control tags in the dataset')
+    parser.add_argument('--include_stability_levels', nargs='*', default=["high"],
+                        help='Include stability levels in the dataset, options: high, medium, low')
+    parser.add_argument('--split_percent', type=float, default=.33,
+                        help='Percentage of the dataset to use for training')
+    parser.add_argument('--checkpoint_path', type=str,
+                        help='Path to a checkpoint file to load (.ckpt)')
+    parser.add_argument('--n_pairs_to_sample', type=int, default=50,
+                        help='Number of pairs to sample and create for DPO training (default: 50)')
+    parser.add_argument('--max_sampling_attempts', type=int, default=10000,
+                        help='Maximum number of attempts to find valid pairs for DPO training (default: 10000)')
     
     args = parser.parse_args()
     
@@ -456,21 +522,26 @@ def main():
         use_weighted_dpo=args.use_weighted_dpo,
         weight_scale=args.weight_scale,
         warmup_steps=args.warmup_steps,
-        weight_decay=args.weight_decay
+        weight_decay=args.weight_decay,
+        use_control_tags=args.use_control_tags,
+        include_stability_levels=args.include_stability_levels,
+        split_percent=args.split_percent,
+        checkpoint_path=args.checkpoint_path
     )
     
     # Initialize tokenizer for dataset
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
-    # Add special tokens to tokenizer
-    special_tokens_dict = {
-        "additional_special_tokens": [
-            "<stability=high>",
-            "<stability=medium>",
-            "<stability=low>"
-        ]
-    }
-    tokenizer.add_special_tokens(special_tokens_dict)
+    if args.use_control_tags:
+        # Add special tokens to tokenizer
+        special_tokens_dict = {
+            "additional_special_tokens": [
+                "<stability=high>",
+                "<stability=medium>",
+                "<stability=low>"
+            ]
+        }
+        tokenizer.add_special_tokens(special_tokens_dict)
     
     dataset_type = ZymCTRLSFTDataset if args.training_mode == "sft" else ZymCTRLDPODataset
     # Load datasets
@@ -480,7 +551,12 @@ def main():
         max_length=args.max_length,
         training_mode=args.training_mode,
         stability_threshold=args.stability_threshold,
-        type="train"
+        use_control_tags=args.use_control_tags,
+        include_stability_levels=args.include_stability_levels,
+        split_percent=args.split_percent,
+        type="train",
+        n_pairs_to_sample=args.n_pairs_to_sample,
+        max_sampling_attempts=args.max_sampling_attempts
     )
     
     val_dataset = None
@@ -491,7 +567,12 @@ def main():
             max_length=args.max_length,
             training_mode=args.training_mode,
             stability_threshold=args.stability_threshold,
-            type="val"
+            use_control_tags=args.use_control_tags,
+            include_stability_levels=args.include_stability_levels,
+            split_percent=args.split_percent,
+            type="val",
+            n_pairs_to_sample=args.n_pairs_to_sample,
+            max_sampling_attempts=args.max_sampling_attempts
         )
     
     # Train model
