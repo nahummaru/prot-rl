@@ -9,7 +9,30 @@
 
 source ../dpo/bin/activate
 
+# python eval_harness.py \
+#        --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_brenda_sft_only_high_stability_ablation/epoch=4-val_loss=0.49.ckpt" \
+#        --eval_type controllability \
+#        --output_dir "results/brenda_sft_only_high_stability_ablation" \
+#        --disable_tags
+
 python eval_harness.py \
-       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_brenda_sft_15/epoch=2-val_loss=0.49.ckpt" \
+       --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_talal-dpo/epoch=0-val_loss=0.68.ckpt" \
        --eval_type controllability \
-       --output_dir "brenda_results_sft_15" \
+       --output_dir "results/talal_dpo_sft_only_high_stability_ablation_epoch0" \
+       --disable_tags
+
+# python eval_harness.py \
+#        --model_path "/home/joetey/prot-rl/DPO_ZymCTRL/checkpoints_iteration0_epoch4-sft-dpo/epoch=4-val_loss=0.46.ckpt" \
+#        --eval_type controllability \
+#        --output_dir "results/epoch4-sft-dpo"
+
+# python eval_harness.py \
+#        --model_path "AI4PD/ZymCTRL" \
+#        --eval_type controllability \
+#        --output_dir "results/zymctrl_baseline_no_tags" \
+#        --disable_tags
+
+# python eval_harness.py \
+#        --model_path "AI4PD/ZymCTRL" \
+#        --eval_type controllability \
+#        --output_dir "results/zymctrl_baseline_with_tags"

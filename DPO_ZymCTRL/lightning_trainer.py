@@ -404,7 +404,7 @@ class ZymCTRLTrainer:
             ModelCheckpoint(
                 dirpath=self.output_dir,
                 filename="{epoch}-{" + ("val_loss" if val_dataset else "train_loss") + ":.2f}",
-                save_top_k=1,
+                save_top_k=None,
                 monitor="val_loss" if val_dataset else "train_loss",
                 mode="min"
             ),

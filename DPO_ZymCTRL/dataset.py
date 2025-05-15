@@ -316,25 +316,14 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
             
         logger.info(f"Found {len(valid_stability_pairs)} pairs meeting stability threshold")
         
-        # Shuffle the valid pairs
-        np.random.shuffle(valid_stability_pairs)
-        
-        # Now process these pairs in order until we find enough valid ones
+        # Now process these pairs to find all valid ones (with replacement allowed)
         valid_pairs = []
-        used_top_indices = set()
-        used_bottom_indices = set()
-        processed_count = 0
-        
-        logger.info("Finding valid pairs meeting all criteria...")
+        logger.info("Finding valid pairs meeting all criteria (with replacement)...")
         for bottom_idx_local, top_idx_local in valid_stability_pairs:
             # Convert local indices to global indices
             top_idx = top_indices[top_idx_local]
             bottom_idx = bottom_indices[bottom_idx_local]
             
-            # Skip if either sequence is already used
-            if top_idx in used_top_indices or bottom_idx in used_bottom_indices:
-                continue
-                
             # Get sequences
             seq1 = sorted_data.iloc[top_idx]['sequence']
             seq2 = sorted_data.iloc[bottom_idx]['sequence']
@@ -343,7 +332,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
             identity = calculate_sequence_identity(seq1, seq2)
             if identity < self.min_sequence_identity:
                 continue
-                
+            
             # Check BLOSUM62 score
             blosum_score = calculate_blosum62_score(seq1, seq2)
             if blosum_score < self.min_blosum62_score:
@@ -351,18 +340,6 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
             
             # Valid pair found
             valid_pairs.append((top_idx, bottom_idx))
-            used_top_indices.add(top_idx)
-            used_bottom_indices.add(bottom_idx)
-            
-            processed_count += 1
-            
-            # Log progress every 1000 pairs
-            if processed_count % 1000 == 0:
-                logger.info(f"Processed {processed_count} pairs, found {len(valid_pairs)} valid ones")
-            
-            # Check if we have enough pairs
-            if len(valid_pairs) >= n_pairs_to_sample:
-                break
         
         if len(valid_pairs) == 0:
             raise ValueError(
@@ -372,17 +349,16 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
                 f"- BLOSUM62 score >= {self.min_blosum62_score}"
             )
         
-        if len(valid_pairs) < n_pairs_to_sample:
-            logger.warning(f"Could only find {len(valid_pairs)} valid pairs, "
-                         f"which is less than the requested {n_pairs_to_sample} pairs")
+        logger.info(f"Found {len(valid_pairs)} valid pairs meeting all criteria (before sampling)")
         
-        logger.info(f"Found {len(valid_pairs)} valid pairs meeting all criteria")
-        logger.info(f"Used {len(used_top_indices)} unique sequences from top group")
-        logger.info(f"Used {len(used_bottom_indices)} unique sequences from bottom group")
+        # Sample n_pairs_to_sample pairs with replacement
+        if len(valid_pairs) < n_pairs_to_sample:
+            logger.warning(f"Only {len(valid_pairs)} unique valid pairs, but sampling {n_pairs_to_sample} pairs with replacement.")
+        sampled_pairs = [random.choice(valid_pairs) for _ in range(n_pairs_to_sample)]
         
         # Log some statistics about the filtered pairs
-        if len(valid_pairs) > 0:
-            sample_pairs = random.sample(valid_pairs, min(5, len(valid_pairs)))
+        if len(sampled_pairs) > 0:
+            sample_pairs = random.sample(sampled_pairs, min(5, len(sampled_pairs)))
             logger.info("Sample pair statistics:")
             for i, j in sample_pairs:
                 seq1 = sorted_data.iloc[i]['sequence']
@@ -401,7 +377,7 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         # Create pairs: teach model to prefer stable sequences
         # For these pairs, the more stable sequence (lower score) is marked as "chosen"
         # and gets the "high" stability tag
-        for i, j in valid_pairs:
+        for i, j in sampled_pairs:
             seq1, seq2 = sorted_data.iloc[i], sorted_data.iloc[j]
             if seq1['stability_score'] < seq2['stability_score']:  # Lower score = more stable
                 chosen, rejected = seq1, seq2
@@ -421,6 +397,14 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
         
         # Convert to DataFrame for easier indexing
         self.paired_data = pd.DataFrame(self.paired_data)
+
+        import os
+        # Save the paired data to a CSV file
+        output_dir = "paired_data"
+        os.makedirs(output_dir, exist_ok=True)
+        output_file = os.path.join(output_dir, "dpo_pairs.csv")
+        self.paired_data.to_csv(output_file, index=False)
+        logger.info(f"Saved paired data to {output_file}")
         logger.info(f"Created {len(self.paired_data)} paired samples")
         logger.info(f"Number of prefer_stable=True: {sum(self.paired_data['prefer_stable'])}")
         

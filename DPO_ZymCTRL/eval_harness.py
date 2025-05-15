@@ -54,6 +54,7 @@ Arguments
 --batch_size: Batch size for generation (default: 10)
 --ec_label: EC number to use (default: 4.2.1.1)
 --output_dir: Directory to save results
+--disable_tags: Disable custom tag prompting and control tags (default: False)
 
 Output Format
 ------------
@@ -105,6 +106,7 @@ class GenerationConfig:
     do_sample: bool = True
     num_return_sequences: int = 1
     temperature: float = 1
+
 class BaseEvaluator:
     """Base evaluation functionality shared by both evaluator types."""
     
@@ -116,12 +118,14 @@ class BaseEvaluator:
         batch_size: int = 10,
         ec_label: str = "4.2.1.1",
         brenda_path: str | None = None,
+        disable_tags: bool = False,
     ) -> None:
         self.model_path = model_path
         self.device = torch.device(device)
         self.num_samples = num_samples
         self.batch_size = batch_size
         self.ec_label = ec_label
+        self.disable_tags = disable_tags
         
         # Load tokenizer and model
         self._setup_tokenizer()
@@ -134,7 +138,8 @@ class BaseEvaluator:
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
             
-        # Add stability tags to vocabulary
+        # Add stability tags to vocabulary if not disabled
+        # if not self.disable_tags:
         added = self.tokenizer.add_special_tokens(
             {"additional_special_tokens": STABILITY_TAGS}
         )
@@ -152,7 +157,8 @@ class BaseEvaluator:
             else GPT2LMHeadModel.from_pretrained(self.model_path).to(self.device)
         )
         
-        # Resize embeddings for new tokens
+        # Resize embeddings for new tokens if not disabled
+        # if not self.disable_tags:
         base.resize_token_embeddings(len(self.tokenizer))
         
         # Load checkpoint if needed
@@ -169,6 +175,8 @@ class BaseEvaluator:
         
     def _build_prompt(self, stability_tag: Optional[str] = None) -> str:
         """Create input prompt with optional stability tag."""
+        if self.disable_tags:
+            return f"{self.ec_label}<sep><start>"
         tag = f"<stability={stability_tag}>" if stability_tag else ""
         return f"{self.ec_label}{tag}<sep><start>"
     
@@ -211,7 +219,7 @@ class BaseEvaluator:
                 clean = text.replace(self.ec_label, "")
 
                 # print("Length of sequence: ", len(seq_ids))
-                if stability_tag:
+                if stability_tag and not self.disable_tags:
                     clean = clean.replace(f"<stability={stability_tag}>", "")
                 clean = self._strip_special(clean).strip()
                 
@@ -282,12 +290,11 @@ class ControllabilityEvaluator(BaseEvaluator):
         """Run controllability evaluation."""
         results = {}
         
-        # Generate and evaluate sequences for each stability level
-        for tag in ["high", "medium", "low"]:
-            sequences = self.generate_sequences(stability_tag=tag)
+        if self.disable_tags:
+            sequences = self.generate_sequences()
             stability_metrics = self.calculate_stability(sequences)
             
-            results[tag] = {
+            results["baseline"] = {
                 "sequences": sequences,
                 "metrics": {
                     "perplexity": self.calculate_perplexity(sequences),
@@ -298,6 +305,23 @@ class ControllabilityEvaluator(BaseEvaluator):
                     }
                 }
             }
+        else:
+            # Generate and evaluate sequences for each stability level
+            for tag in ["high", "medium", "low"]:
+                sequences = self.generate_sequences(stability_tag=tag)
+                stability_metrics = self.calculate_stability(sequences)
+                
+                results[tag] = {
+                    "sequences": sequences,
+                    "metrics": {
+                        "perplexity": self.calculate_perplexity(sequences),
+                        "stability": {
+                            "raw_if": [m["raw_if"] for m in stability_metrics],
+                            "dg": [m["dg"] for m in stability_metrics],
+                            "plddt": [m["plddt"] for m in stability_metrics]
+                        }
+                    }
+                }
             
         return results
 
@@ -324,14 +348,23 @@ class MembershipEvaluator(BaseEvaluator):
 
         results = {}
 
-        for tag in ["high", "medium", "low"]:
-            sequences = self.generate_sequences(stability_tag=tag)
+        if self.disable_tags:
+            sequences = self.generate_sequences()
             scores = self.membership_score(brenda_sequences, sequences)
 
-            results[tag] = {
+            results["baseline"] = {
                 "sequences": sequences,
                 "scores": scores
             }
+        else:
+            for tag in ["high", "medium", "low"]:
+                sequences = self.generate_sequences(stability_tag=tag)
+                scores = self.membership_score(brenda_sequences, sequences)
+
+                results[tag] = {
+                    "sequences": sequences,
+                    "scores": scores
+                }
 
         return results
 
@@ -344,11 +377,13 @@ class EvaluationRunner:
         num_samples: int = 100,
         batch_size: int = 10,
         ec_label: str = "4.2.1.1",
+        disable_tags: bool = False,
     ) -> None:
         self.model_path = model_path
         self.num_samples = num_samples
         self.batch_size = batch_size
         self.ec_label = ec_label
+        self.disable_tags = disable_tags
         
     def run_performance(self) -> Dict[str, Any]:
         """Run model performance evaluation."""
@@ -357,6 +392,7 @@ class EvaluationRunner:
             num_samples=self.num_samples,
             batch_size=self.batch_size,
             ec_label=self.ec_label,
+            disable_tags=self.disable_tags,
         )
         return evaluator.evaluate()
     
@@ -367,6 +403,7 @@ class EvaluationRunner:
             num_samples=self.num_samples,
             batch_size=self.batch_size,
             ec_label=self.ec_label,
+            disable_tags=self.disable_tags,
         )
         return evaluator.evaluate()
     
@@ -376,7 +413,9 @@ class EvaluationRunner:
             self.model_path,
             num_samples=self.num_samples,
             batch_size=self.batch_size,
+            disable_tags=self.disable_tags,
         )
+        return evaluator.evaluate()
 
     def run_all(self) -> Dict[str, Any]:
         """Run both performance and controllability evaluations."""
@@ -400,6 +439,7 @@ def main():
         default="all",
         help="Type of evaluation to run",
     )
+    parser.add_argument("--disable_tags", action="store_true", help="Disable custom tag prompting and control tags")
     
     args = parser.parse_args()
     
@@ -412,6 +452,7 @@ def main():
         num_samples=args.num_samples,
         batch_size=args.batch_size,
         ec_label=args.ec_label,
+        disable_tags=args.disable_tags,
     )
     
     if args.eval_type == "performance":
