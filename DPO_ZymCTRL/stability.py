@@ -4,7 +4,8 @@ import sys
 import tempfile
 import logging
 import subprocess
-from typing import List, Tuple
+import argparse
+from typing import List, Tuple, Optional
 
 import torch
 import numpy as np
@@ -19,6 +20,16 @@ from transformers import AutoTokenizer, EsmForProteinFolding
 from Bio.PDB import PDBParser
 
 import time 
+
+# Rosetta imports - will be imported conditionally
+try:
+    import pyrosetta
+    from pyrosetta import rosetta
+    ROSETTA_AVAILABLE = True
+except ImportError:
+    ROSETTA_AVAILABLE = False
+    pyrosetta = None
+    rosetta = None
 
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -41,6 +52,10 @@ _efs_model       = None
 _if_model        = None
 _alphabet        = None
 _batch_converter = None
+
+# Rosetta globals
+_rosetta_initialized = False
+_rosetta_scorefxn = None
 
 # -----------------------------------------------------------------------------
 # Your provided utilities
@@ -197,7 +212,6 @@ def _load_if_model():
         logger.info(f"Loading ESM-IF model ({_IF_CHECKPOINT})…")
         # allow argparse.Namespace unpickling if needed
         from torch.serialization import safe_globals
-        import argparse
         with safe_globals([argparse.Namespace]):
             _if_model, _alphabet = esm.pretrained.load_model_and_alphabet(_IF_CHECKPOINT)
         _if_model = _if_model.eval().to(device)
@@ -274,22 +288,90 @@ def _score_pdb_str(pdb_str: str, chain_id: str) -> Tuple[float, float]:
     return raw_if, dg
 
 # -----------------------------------------------------------------------------
+# Rosetta scoring functions
+# -----------------------------------------------------------------------------
+def _init_rosetta():
+    """Initialize PyRosetta if not already done."""
+    global _rosetta_initialized, _rosetta_scorefxn
+    
+    if not ROSETTA_AVAILABLE:
+        raise ImportError("PyRosetta is not available. Please install PyRosetta to use Rosetta scoring.")
+    
+    if not _rosetta_initialized:
+        logger.info("Initializing PyRosetta...")
+        pyrosetta.init("-mute all")  # Suppress Rosetta output
+        _rosetta_scorefxn = pyrosetta.get_fa_scorefxn()  # Full-atom score function
+        _rosetta_initialized = True
+        logger.info("PyRosetta initialized successfully.")
+
+def _score_pdb_str_rosetta(pdb_str: str, chain_id: str = "A") -> Tuple[float, float]:
+    """Score a PDB structure using Rosetta's full-atom score function."""
+    _init_rosetta()
+    
+    # Write PDB to temp file
+    tmp = tempfile.NamedTemporaryFile(mode="w+", suffix=".pdb", delete=False)
+    tmp.write(pdb_str)
+    tmp.flush()
+    tmp.close()
+    tmp_path = tmp.name
+
+    try:
+        # Load pose from PDB
+        pose = pyrosetta.pose_from_pdb(tmp_path)
+        
+        # Score the pose
+        raw_score = _rosetta_scorefxn(pose)
+        
+        # Convert to kcal/mol (Rosetta Energy Units are approximately kcal/mol)
+        dg = raw_score
+        
+    finally:
+        os.remove(tmp_path)
+
+    return raw_score, dg
+
+def _score_pdb_str_batch_rosetta(pdb_strs: List[str], chain_id: str = "A") -> List[Tuple[float, float]]:
+    """Score multiple PDB structures using Rosetta."""
+    _init_rosetta()
+    
+    results = []
+    for pdb_str in pdb_strs:
+        raw_score, dg = _score_pdb_str_rosetta(pdb_str, chain_id)
+        results.append((raw_score, dg))
+    
+    return results
+
+# -----------------------------------------------------------------------------
 # Public API: batch stability
 # -----------------------------------------------------------------------------
 def stability_score(
     sequences: List[str],
     chain_id: str = "A",
-    esmfold_model: str = "facebook/esmfold_v1"
+    esmfold_model: str = "facebook/esmfold_v1",
+    scoring_method: str = "esm-if"
 ) -> List[Tuple[float, float, float]]:  # Updated return type to include pLDDT
     """
     Batch absolute ΔG prediction:
       1) fold each seq with ESMFold
-      2) score each structure with ESM-IF
+      2) score each structure with ESM-IF or Rosetta
 
-    Returns list of (raw_IF_score, ΔG_kcal/mol, pLDDT).
+    Args:
+        sequences: List of protein sequences
+        chain_id: PDB chain ID to use
+        esmfold_model: ESMFold model name
+        scoring_method: Either 'esm-if' or 'rosetta'
+
+    Returns list of (raw_score, ΔG_kcal/mol, pLDDT).
     """
+    if scoring_method not in ["esm-if", "rosetta"]:
+        raise ValueError("scoring_method must be either 'esm-if' or 'rosetta'")
+    
+    if scoring_method == "rosetta" and not ROSETTA_AVAILABLE:
+        raise ImportError("PyRosetta is not available. Please install PyRosetta to use Rosetta scoring.")
+
     _load_esmfold(esmfold_model)
-    _load_if_model()
+    if scoring_method == "esm-if":
+        _load_if_model()
 
     results = []
     for seq in sequences:
@@ -300,26 +382,45 @@ def stability_score(
 
         pdb_str, plddt = _fold_seq_to_pdb_str(seq, esmfold_model)
         plddt = plddt[0]
-        raw_if, dg = _score_pdb_str(pdb_str[0], chain_id)
-        logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol pLDDT={plddt:.1f}")
-        results.append((raw_if, dg, plddt))
+        
+        if scoring_method == "esm-if":
+            raw_score, dg = _score_pdb_str(pdb_str[0], chain_id)
+        else:  # rosetta
+            raw_score, dg = _score_pdb_str_rosetta(pdb_str[0], chain_id)
+            
+        logger.info(f"Seq len={len(seq)} raw_score={raw_score:.1f} ΔG={dg:.2f} kcal/mol pLDDT={plddt:.1f} method={scoring_method}")
+        results.append((raw_score, dg, plddt))
 
     return results
 
 def stability_score_batch(
     sequences: List[str],
     chain_id: str = "A",
-    esmfold_model: str = "facebook/esmfold_v1"
-) -> List[Tuple[float, float]]:
+    esmfold_model: str = "facebook/esmfold_v1",
+    scoring_method: str = "esm-if"
+) -> List[Tuple[float, float, float]]:
     """
     Batch absolute ΔG prediction:
       1) fold each seq with ESMFold
-      2) score each structure with ESM-IF
+      2) score each structure with ESM-IF or Rosetta
 
-    Returns list of (raw_IF_score, ΔG_kcal/mol).
+    Args:
+        sequences: List of protein sequences
+        chain_id: PDB chain ID to use
+        esmfold_model: ESMFold model name
+        scoring_method: Either 'esm-if' or 'rosetta'
+
+    Returns list of (raw_score, ΔG_kcal/mol, pLDDT).
     """
+    if scoring_method not in ["esm-if", "rosetta"]:
+        raise ValueError("scoring_method must be either 'esm-if' or 'rosetta'")
+    
+    if scoring_method == "rosetta" and not ROSETTA_AVAILABLE:
+        raise ImportError("PyRosetta is not available. Please install PyRosetta to use Rosetta scoring.")
+
     _load_esmfold(esmfold_model)
-    _load_if_model()
+    if scoring_method == "esm-if":
+        _load_if_model()
 
     results = []
     pdb_strings = []
@@ -331,7 +432,7 @@ def stability_score_batch(
     for seq in sequences:
         if not seq or any(aa not in "ACDEFGHIKLMNPQRSTVWY" for aa in seq):
             logger.error(f"Skipping invalid sequence: {seq}")
-            results.append((np.nan, np.nan))
+            results.append((np.nan, np.nan, np.nan))
             continue
         _sequences.append(seq)
 
@@ -342,15 +443,15 @@ def stability_score_batch(
     print(f"Time taken to fold sequences: {time.time() - start} seconds")
 
     start = time.time()
-    results = _score_pdb_str_batch(pdb_strings, chain_id)
-    print(f"Time taken to score sequences: {time.time() - start} seconds")
+    if scoring_method == "esm-if":
+        score_results = _score_pdb_str_batch(pdb_strings, chain_id)
+    else:  # rosetta
+        score_results = _score_pdb_str_batch_rosetta(pdb_strings, chain_id)
+    
+    print(f"Time taken to score sequences with {scoring_method}: {time.time() - start} seconds")
 
-    # for pdb_str in pdb_strings:
-    #     raw_if, dg = _score_pdb_str(pdb_str, chain_id)
-    #     logger.info(f"Seq len={len(seq)} raw_IF={raw_if:.1f} ΔG={dg:.2f} kcal/mol")
-    #     results.append((raw_if, dg))
-
-    results = [(*e, plddt) for e, plddt in zip(results, plddts)]
+    # Combine results with pLDDT scores
+    results = [(*score_result, plddt) for score_result, plddt in zip(score_results, plddts)]
 
     return results
 
@@ -358,10 +459,47 @@ def stability_score_batch(
 # CLI
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} SEQ1 [SEQ2 ...]")
+    parser = argparse.ArgumentParser(description="Protein stability scoring using ESMFold + ESM-IF or Rosetta")
+    parser.add_argument("sequences", nargs="+", help="Protein sequences to score")
+    parser.add_argument("--chain-id", default="A", help="PDB chain ID to use (default: A)")
+    parser.add_argument("--esmfold-model", default="facebook/esmfold_v1", 
+                       help="ESMFold model name (default: facebook/esmfold_v1)")
+    parser.add_argument("--scoring-method", choices=["esm-if", "rosetta"], default="esm-if",
+                       help="Scoring method: 'esm-if' (default) or 'rosetta'")
+    parser.add_argument("--batch", action="store_true", 
+                       help="Use batch processing for faster scoring of multiple sequences")
+    
+    args = parser.parse_args()
+    
+    # Validate Rosetta availability if requested
+    if args.scoring_method == "rosetta" and not ROSETTA_AVAILABLE:
+        print("Error: PyRosetta is not available. Please install PyRosetta to use Rosetta scoring.")
+        print("You can install PyRosetta from: https://www.pyrosetta.org/downloads")
         sys.exit(1)
-    seqs = sys.argv[1:]
-    scores = stability_score(seqs)
-    for seq, (raw_if, dg, plddt) in zip(seqs, scores):
-        print(f"{seq[:10]}… raw_IF={raw_if:.2f}, ΔG={dg:.2f} kcal/mol, pLDDT={plddt:.1f}")
+    
+    print(f"Scoring {len(args.sequences)} sequence(s) using {args.scoring_method.upper()} method...")
+    
+    if args.batch and len(args.sequences) > 1:
+        scores = stability_score_batch(
+            args.sequences, 
+            chain_id=args.chain_id,
+            esmfold_model=args.esmfold_model,
+            scoring_method=args.scoring_method
+        )
+    else:
+        scores = stability_score(
+            args.sequences,
+            chain_id=args.chain_id, 
+            esmfold_model=args.esmfold_model,
+            scoring_method=args.scoring_method
+        )
+    
+    print("\nResults:")
+    print("=" * 80)
+    for seq, (raw_score, dg, plddt) in zip(args.sequences, scores):
+        method_name = "ESM-IF" if args.scoring_method == "esm-if" else "Rosetta"
+        print(f"Sequence: {seq[:10]}{'...' if len(seq) > 10 else ''}")
+        print(f"  Raw {method_name} score: {raw_score:.2f}")
+        print(f"  ΔG: {dg:.2f} kcal/mol")
+        print(f"  pLDDT: {plddt:.1f}")
+        print("-" * 40)

@@ -339,8 +339,7 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
     result[label] = sequences
     return result
 
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False):
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering):
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False, scoring_method="rosetta"):
     """
     Add stability scores to sequences and convert to DataFrame.
     Processes sequences in batches using stability_score_batch.
@@ -356,6 +355,8 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
     batch_size = 8  # Adjust based on available GPU memory
     current_batch = []
     current_batch_info = []  # Store (label, seq, ppl) for each sequence in batch
+    
+    print(f"Using {scoring_method.upper()} scoring method for stability evaluation")
     
     for label, seq_list in tqdm(sequences_dict.items(), desc="Scoring sequences"):
         for seq, ppl in seq_list:
@@ -394,10 +395,10 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
                                            torch.rand(1).item() * 2 - 1,
                                            torch.rand(1).item()) for _ in range(len(current_batch))]
                     else:
-                        stability_results = stability_score_batch(current_batch)
+                        stability_results = stability_score_batch(current_batch, scoring_method=scoring_method)
                     
                     # Process results for each sequence in the batch
-                    for (label, seq, ppl), (raw_if, dg, plddt) in zip(current_batch_info, stability_results):
+                    for (label, seq, ppl), (raw_score, dg, plddt) in zip(current_batch_info, stability_results):
                         # Apply pLDDT filter
                         if not disable_filtering and plddt < plddt_threshold:
                             print(f"Filtering out sequence due to low pLDDT: {plddt}")
@@ -408,23 +409,37 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
                         stability = dg
                         
                         # Assign stability label based on deltaG
-                        if stability < -2.0:  # More negative = more stable
-                            stability_label = "high"
-                        elif stability > 0.0:
-                            stability_label = "low"
-                        else:
-                            stability_label = "medium"
+                        # Note: For Rosetta, more negative energy = more stable
+                        # For ESM-IF, the fit parameters already convert to kcal/mol with proper sign
+                        if scoring_method == "rosetta":
+                            # Rosetta energy units: more negative = more stable
+                            if stability < -50:  # Very stable
+                                stability_label = "high"
+                            elif stability > 0:   # Unstable
+                                stability_label = "low"
+                            else:                 # Moderately stable
+                                stability_label = "medium"
+                        else:  # esm-if
+                            # ESM-IF converted deltaG: more negative = more stable
+                            if stability < -2.0:  # More negative = more stable
+                                stability_label = "high"
+                            elif stability > 0.0:
+                                stability_label = "low"
+                            else:
+                                stability_label = "medium"
 
                         print(f"seq: {seq}")
+                        print(f"Scoring method: {scoring_method}, Raw score: {raw_score:.2f}, ΔG: {dg:.2f}, Label: {stability_label}")
                             
                         data.append({
                             'sequence': seq,
                             'perplexity': ppl,
                             'stability_score': stability,
-                            'stability_raw_if': raw_if,
+                            'stability_raw_score': raw_score,
                             'stability_label': stability_label,
                             'ec_label': label,
-                            'plddt': plddt
+                            'plddt': plddt,
+                            'scoring_method': scoring_method
                         })
                     
                     # Clear batch
@@ -461,7 +476,8 @@ def save_data(df, output_dir="training_data"):
         subset = df[df['stability_label'] == label]
         with open(f"{output_dir}/stability_{label}.fasta", 'w') as f:
             for idx, row in subset.iterrows():
-                f.write(f">{row['ec_label']}_{idx}_stability={label}_score={row['stability_score']:.2f}\n")
+                scoring_method = row.get('scoring_method', 'unknown')
+                f.write(f">{row['ec_label']}_{idx}_stability={label}_score={row['stability_score']:.2f}_method={scoring_method}\n")
                 f.write(f"{row['sequence']}\n")
     
     print(f"\nDataset statistics:")
@@ -502,10 +518,13 @@ if __name__ == '__main__':
                       help="Control tag to use for all generations (e.g. '<stability=high>')")
     parser.add_argument("--sequence_path", type=str, default="", 
                       help="Path to pre-generated sequences")
+    parser.add_argument("--scoring_method", type=str, default="rosetta", choices=["esm-if", "rosetta"],
+                      help="Scoring method for stability evaluation: 'rosetta' (default) or 'esm-if'")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    print(f"Using {args.scoring_method.upper()} scoring method")
 
     if args.sequence_path != "":
         with open(args.sequence_path, "r") as f:
@@ -620,7 +639,7 @@ if __name__ == '__main__':
     
     df = process_sequences_with_stability(all_sequences, args.plddt_threshold, 
                                           args.perplexity_threshold, args.min_length, args.max_length,
-                                          disable_filtering=args.disable_filtering)
+                                          disable_filtering=args.disable_filtering, scoring_method=args.scoring_method)
     
     # Save results
     print("\nSaving results...")
