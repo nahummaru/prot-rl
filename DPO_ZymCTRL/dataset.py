@@ -340,6 +340,13 @@ class ZymCTRLDPODataset(ZymCTRLDataset):
             
             # Valid pair found
             valid_pairs.append((top_idx, bottom_idx))
+            
+            # Print every 1000 pairs
+            if len(valid_pairs) % 1000 == 0:
+                logger.info(f"Found {len(valid_pairs)} valid pairs so far...")
+            
+            if len(valid_pairs) >= n_pairs_to_sample:
+                break
         
         if len(valid_pairs) == 0:
             raise ValueError(
