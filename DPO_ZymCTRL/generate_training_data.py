@@ -130,6 +130,152 @@ def generate_pivot_sequences(label, model, special_tokens, device, tokenizer, pl
     
     return sequences
 
+def generate_blosum_sequences(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, n_continuations=8, control_tag=""):
+    '''
+    Generate sequences using the BLOSUM-based approach:
+    1. Generate a base sequence
+    2. Apply BLOSUM matrix-based mutations
+    3. Generate multiple continuations from mutated sequences
+    4. Evaluate stability differences
+    '''
+    import numpy as np
+    
+    # BLOSUM62 matrix (simplified version for common amino acids)
+    blosum62 = {
+        'A': {'A': 4, 'R': -1, 'N': -2, 'D': -2, 'C': 0, 'Q': -1, 'E': -1, 'G': 0, 'H': -2, 'I': -1, 'L': -1, 'K': -1, 'M': -1, 'F': -2, 'P': -1, 'S': 1, 'T': 0, 'W': -3, 'Y': -2, 'V': 0},
+        'R': {'A': -1, 'R': 5, 'N': 0, 'D': -2, 'C': -3, 'Q': 1, 'E': 0, 'G': -2, 'H': 0, 'I': -3, 'L': -2, 'K': 2, 'M': -1, 'F': -3, 'P': -2, 'S': -1, 'T': -1, 'W': -3, 'Y': -2, 'V': -3},
+        'N': {'A': -2, 'R': 0, 'N': 6, 'D': 1, 'C': -3, 'Q': 0, 'E': 0, 'G': 0, 'H': 1, 'I': -3, 'L': -3, 'K': 0, 'M': -2, 'F': -3, 'P': -2, 'S': 1, 'T': 0, 'W': -4, 'Y': -2, 'V': -3},
+        'D': {'A': -2, 'R': -2, 'N': 1, 'D': 6, 'C': -3, 'Q': 0, 'E': 2, 'G': -1, 'H': -1, 'I': -3, 'L': -4, 'K': -1, 'M': -3, 'F': -3, 'P': -1, 'S': 0, 'T': -1, 'W': -4, 'Y': -3, 'V': -3},
+        'C': {'A': 0, 'R': -3, 'N': -3, 'D': -3, 'C': 9, 'Q': -3, 'E': -4, 'G': -3, 'H': -3, 'I': -1, 'L': -1, 'K': -3, 'M': -1, 'F': -2, 'P': -3, 'S': -1, 'T': -1, 'W': -2, 'Y': -2, 'V': -1},
+        'Q': {'A': -1, 'R': 1, 'N': 0, 'D': 0, 'C': -3, 'Q': 5, 'E': 2, 'G': -2, 'H': 0, 'I': -3, 'L': -2, 'K': 1, 'M': 0, 'F': -3, 'P': -1, 'S': 0, 'T': -1, 'W': -2, 'Y': -1, 'V': -2},
+        'E': {'A': -1, 'R': 0, 'N': 0, 'D': 2, 'C': -4, 'Q': 2, 'E': 5, 'G': -2, 'H': 0, 'I': -3, 'L': -3, 'K': 1, 'M': -2, 'F': -3, 'P': -1, 'S': 0, 'T': -1, 'W': -3, 'Y': -2, 'V': -2},
+        'G': {'A': 0, 'R': -2, 'N': 0, 'D': -1, 'C': -3, 'Q': -2, 'E': -2, 'G': 6, 'H': -2, 'I': -4, 'L': -4, 'K': -2, 'M': -3, 'F': -3, 'P': -2, 'S': 0, 'T': -2, 'W': -2, 'Y': -3, 'V': -3},
+        'H': {'A': -2, 'R': 0, 'N': 1, 'D': -1, 'C': -3, 'Q': 0, 'E': 0, 'G': -2, 'H': 8, 'I': -3, 'L': -3, 'K': -1, 'M': -2, 'F': -1, 'P': -2, 'S': -1, 'T': -2, 'W': -2, 'Y': 2, 'V': -3},
+        'I': {'A': -1, 'R': -3, 'N': -3, 'D': -3, 'C': -1, 'Q': -3, 'E': -3, 'G': -4, 'H': -3, 'I': 4, 'L': 2, 'K': -3, 'M': 1, 'F': 0, 'P': -3, 'S': -2, 'T': -1, 'W': -3, 'Y': -1, 'V': 3},
+        'L': {'A': -1, 'R': -2, 'N': -3, 'D': -4, 'C': -1, 'Q': -2, 'E': -3, 'G': -4, 'H': -3, 'I': 2, 'L': 4, 'K': -2, 'M': 2, 'F': 0, 'P': -3, 'S': -2, 'T': -1, 'W': -2, 'Y': -1, 'V': 1},
+        'K': {'A': -1, 'R': 2, 'N': 0, 'D': -1, 'C': -3, 'Q': 1, 'E': 1, 'G': -2, 'H': -1, 'I': -3, 'L': -2, 'K': 5, 'M': -1, 'F': -3, 'P': -1, 'S': 0, 'T': -1, 'W': -3, 'Y': -2, 'V': -2},
+        'M': {'A': -1, 'R': -1, 'N': -2, 'D': -3, 'C': -1, 'Q': 0, 'E': -2, 'G': -3, 'H': -2, 'I': 1, 'L': 2, 'K': -1, 'M': 5, 'F': 0, 'P': -2, 'S': -1, 'T': -1, 'W': -1, 'Y': -1, 'V': 1},
+        'F': {'A': -2, 'R': -3, 'N': -3, 'D': -3, 'C': -2, 'Q': -3, 'E': -3, 'G': -3, 'H': -1, 'I': 0, 'L': 0, 'K': -3, 'M': 0, 'F': 6, 'P': -4, 'S': -2, 'T': -2, 'W': 1, 'Y': 3, 'V': -1},
+        'P': {'A': -1, 'R': -2, 'N': -2, 'D': -1, 'C': -3, 'Q': -1, 'E': -1, 'G': -2, 'H': -2, 'I': -3, 'L': -3, 'K': -1, 'M': -2, 'F': -4, 'P': 7, 'S': -1, 'T': -1, 'W': -4, 'Y': -3, 'V': -2},
+        'S': {'A': 1, 'R': -1, 'N': 1, 'D': 0, 'C': -1, 'Q': 0, 'E': 0, 'G': 0, 'H': -1, 'I': -2, 'L': -2, 'K': 0, 'M': -1, 'F': -2, 'P': -1, 'S': 4, 'T': 1, 'W': -3, 'Y': -2, 'V': -2},
+        'T': {'A': 0, 'R': -1, 'N': 0, 'D': -1, 'C': -1, 'Q': -1, 'E': -1, 'G': -2, 'H': -2, 'I': -1, 'L': -1, 'K': -1, 'M': -1, 'F': -2, 'P': -1, 'S': 1, 'T': 5, 'W': -2, 'Y': -2, 'V': 0},
+        'W': {'A': -3, 'R': -3, 'N': -4, 'D': -4, 'C': -2, 'Q': -2, 'E': -3, 'G': -2, 'H': -2, 'I': -3, 'L': -2, 'K': -3, 'M': -1, 'F': 1, 'P': -4, 'S': -3, 'T': -2, 'W': 11, 'Y': 2, 'V': -3},
+        'Y': {'A': -2, 'R': -2, 'N': -2, 'D': -3, 'C': -2, 'Q': -1, 'E': -2, 'G': -3, 'H': 2, 'I': -1, 'L': -1, 'K': -2, 'M': -1, 'F': 3, 'P': -3, 'S': -2, 'T': -2, 'W': 2, 'Y': 7, 'V': -1},
+        'V': {'A': 0, 'R': -3, 'N': -3, 'D': -3, 'C': -1, 'Q': -2, 'E': -2, 'G': -3, 'H': -3, 'I': 3, 'L': 1, 'K': -2, 'M': 1, 'F': -1, 'P': -2, 'S': -2, 'T': 0, 'W': -3, 'Y': -1, 'V': 4}
+    }
+    
+    def mutate_sequence_blosum(sequence, mutation_rate=0.1):
+        """Apply BLOSUM62-based mutations to a sequence"""
+        mutated_seq = list(sequence)
+        n_mutations = max(1, int(len(sequence) * mutation_rate))
+        
+        # Select random positions to mutate
+        positions = np.random.choice(len(sequence), n_mutations, replace=False)
+        
+        for pos in positions:
+            original_aa = sequence[pos]
+            if original_aa in blosum62:
+                # Get BLOSUM scores for this amino acid
+                scores = blosum62[original_aa]
+                # Convert negative scores to positive probabilities
+                # Higher BLOSUM score = higher probability of mutation
+                probs = []
+                candidates = []
+                for aa, score in scores.items():
+                    if aa != original_aa:  # Don't mutate to same amino acid
+                        # Convert BLOSUM score to probability (higher score = higher prob)
+                        prob = max(0.01, score + 5)  # Shift to make all positive
+                        probs.append(prob)
+                        candidates.append(aa)
+                
+                # Normalize probabilities
+                probs = np.array(probs)
+                probs = probs / probs.sum()
+                
+                # Select mutation based on BLOSUM probabilities
+                mutated_aa = np.random.choice(candidates, p=probs)
+                mutated_seq[pos] = mutated_aa
+        
+        return ''.join(mutated_seq)
+    
+    print(f"Generating BLOSUM-based sequences for label: {label}")
+    
+    # Extract stability level from control tag if present
+    stability_level = None
+    if control_tag:
+        if control_tag.startswith('<stability=') and control_tag.endswith('>'):
+            stability_level = control_tag[11:-1]  # Extract 'high', 'medium', or 'low'
+    
+    # Format input with proper structure
+    input_text = format_sequence(label, "", stability_level)  # Empty sequence for generation
+
+    input_ids = tokenizer.encode(input_text, return_tensors='pt').to(device)
+    base_output = model.generate(
+        input_ids,
+        top_k=9,
+        repetition_penalty=1.2,
+        max_length=max_length,
+        min_length=min_length,
+        eos_token_id=1,
+        pad_token_id=0,
+        do_sample=True,
+        num_return_sequences=1,  # Generate one base sequence
+        temperature=1,
+        no_repeat_ngram_size=3
+    )
+    
+    # Get base sequence
+    base_decoded = tokenizer.decode(base_output[0])
+    base_sequence = remove_characters(base_decoded, special_tokens)
+    
+    # Generate multiple BLOSUM-mutated variants
+    sequences = []
+    for i in range(n_continuations):
+        # Apply BLOSUM-based mutations
+        mutated_sequence = mutate_sequence_blosum(base_sequence, mutation_rate=0.05 + i * 0.02)  # Varying mutation rates
+        
+        # Re-encode the mutated sequence for continuation generation
+        mutated_input = format_sequence(label, mutated_sequence[:len(mutated_sequence)//2], stability_level)
+        mutated_ids = tokenizer.encode(mutated_input, return_tensors='pt').to(device)
+        
+        # Generate continuation from mutated sequence
+        continuation = model.generate(
+            mutated_ids,
+            top_k=9,
+            repetition_penalty=1.2,
+            max_length=max_length,
+            min_length=min_length,
+            eos_token_id=1,
+            pad_token_id=0,
+            do_sample=True,
+            num_return_sequences=1,
+            temperature=1.2,  # Slightly higher temperature for more diversity
+            no_repeat_ngram_size=3
+        )
+        
+        # Process continuation
+        decoded_output = tokenizer.decode(continuation[0])
+        final_sequence = remove_characters(decoded_output, special_tokens)
+        
+        # Calculate perplexity
+        logits = model.forward(continuation[0]).logits
+        ppl = perplexity_from_logits(logits, continuation[0], None).item()
+        
+        sequences.append((final_sequence, ppl))
+    
+    # Print each sequence and its perplexity
+    print("\nGenerated BLOSUM-mutated sequences and their perplexities:")
+    for i, (seq, ppl) in enumerate(sequences, 1):
+        print(f"\nSequence {i}:")
+        print(f"Perplexity: {ppl:.2f}")
+        print(f"Sequence: {seq}")
+    print("--------------------------------")
+    
+    # Sort by perplexity
+    sequences.sort(key=lambda x: x[1])
+    
+    return sequences
+
 def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perplexity_threshold, min_length, max_length, use_pivot=False, n_continuations=5, control_tag=""):
     '''
     Function to generate sequences from the loaded model.
@@ -193,8 +339,7 @@ def main(label, model, special_tokens, device, tokenizer, plddt_threshold, perpl
     result[label] = sequences
     return result
 
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False):
-def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering):
+def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity_threshold, min_length, max_length, disable_filtering=False, scoring_method="rosetta"):
     """
     Add stability scores to sequences and convert to DataFrame.
     Processes sequences in batches using stability_score_batch.
@@ -210,6 +355,8 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
     batch_size = 8  # Adjust based on available GPU memory
     current_batch = []
     current_batch_info = []  # Store (label, seq, ppl) for each sequence in batch
+    
+    print(f"Using {scoring_method.upper()} scoring method for stability evaluation")
     
     for label, seq_list in tqdm(sequences_dict.items(), desc="Scoring sequences"):
         for seq, ppl in seq_list:
@@ -248,10 +395,10 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
                                            torch.rand(1).item() * 2 - 1,
                                            torch.rand(1).item()) for _ in range(len(current_batch))]
                     else:
-                        stability_results = stability_score_batch(current_batch)
+                        stability_results = stability_score_batch(current_batch, scoring_method=scoring_method)
                     
                     # Process results for each sequence in the batch
-                    for (label, seq, ppl), (raw_if, dg, plddt) in zip(current_batch_info, stability_results):
+                    for (label, seq, ppl), (raw_score, dg, plddt) in zip(current_batch_info, stability_results):
                         # Apply pLDDT filter
                         if not disable_filtering and plddt < plddt_threshold:
                             print(f"Filtering out sequence due to low pLDDT: {plddt}")
@@ -262,23 +409,37 @@ def process_sequences_with_stability(sequences_dict, plddt_threshold, perplexity
                         stability = dg
                         
                         # Assign stability label based on deltaG
-                        if stability < -2.0:  # More negative = more stable
-                            stability_label = "high"
-                        elif stability > 0.0:
-                            stability_label = "low"
-                        else:
-                            stability_label = "medium"
+                        # Note: For Rosetta, more negative energy = more stable
+                        # For ESM-IF, the fit parameters already convert to kcal/mol with proper sign
+                        if scoring_method == "rosetta":
+                            # Rosetta energy units: more negative = more stable
+                            if stability < -50:  # Very stable
+                                stability_label = "high"
+                            elif stability > 0:   # Unstable
+                                stability_label = "low"
+                            else:                 # Moderately stable
+                                stability_label = "medium"
+                        else:  # esm-if
+                            # ESM-IF converted deltaG: more negative = more stable
+                            if stability < -2.0:  # More negative = more stable
+                                stability_label = "high"
+                            elif stability > 0.0:
+                                stability_label = "low"
+                            else:
+                                stability_label = "medium"
 
                         print(f"seq: {seq}")
+                        print(f"Scoring method: {scoring_method}, Raw score: {raw_score:.2f}, ΔG: {dg:.2f}, Label: {stability_label}")
                             
                         data.append({
                             'sequence': seq,
                             'perplexity': ppl,
                             'stability_score': stability,
-                            'stability_raw_if': raw_if,
+                            'stability_raw_score': raw_score,
                             'stability_label': stability_label,
                             'ec_label': label,
-                            'plddt': plddt
+                            'plddt': plddt,
+                            'scoring_method': scoring_method
                         })
                     
                     # Clear batch
@@ -315,7 +476,8 @@ def save_data(df, output_dir="training_data"):
         subset = df[df['stability_label'] == label]
         with open(f"{output_dir}/stability_{label}.fasta", 'w') as f:
             for idx, row in subset.iterrows():
-                f.write(f">{row['ec_label']}_{idx}_stability={label}_score={row['stability_score']:.2f}\n")
+                scoring_method = row.get('scoring_method', 'unknown')
+                f.write(f">{row['ec_label']}_{idx}_stability={label}_score={row['stability_score']:.2f}_method={scoring_method}\n")
                 f.write(f"{row['sequence']}\n")
     
     print(f"\nDataset statistics:")
@@ -356,10 +518,13 @@ if __name__ == '__main__':
                       help="Control tag to use for all generations (e.g. '<stability=high>')")
     parser.add_argument("--sequence_path", type=str, default="", 
                       help="Path to pre-generated sequences")
+    parser.add_argument("--scoring_method", type=str, default="rosetta", choices=["esm-if", "rosetta"],
+                      help="Scoring method for stability evaluation: 'rosetta' (default) or 'esm-if'")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+    print(f"Using {args.scoring_method.upper()} scoring method")
 
     if args.sequence_path != "":
         with open(args.sequence_path, "r") as f:
@@ -474,7 +639,7 @@ if __name__ == '__main__':
     
     df = process_sequences_with_stability(all_sequences, args.plddt_threshold, 
                                           args.perplexity_threshold, args.min_length, args.max_length,
-                                          disable_filtering=args.disable_filtering)
+                                          disable_filtering=args.disable_filtering, scoring_method=args.scoring_method)
     
     # Save results
     print("\nSaving results...")
