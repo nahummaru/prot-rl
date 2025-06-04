@@ -140,7 +140,7 @@ def generate_stability_labels_from_hf(ec_number, output_path, limit=None, min_le
     filtered_ds = filtered_ds.filter(lambda x: len(x['text']) <= max_length)
     filtered_ds = filtered_ds.filter(lambda x: len(x['text']) >= min_length)
     filtered_ds = filtered_ds.map(lambda x: {'length': len(x['text'])})
-    filtered_ds = filtered_ds.sort('length', reverse=False)
+    filtered_ds = filtered_ds.sort('length', reverse=True)
     
     print(f"Found {len(filtered_ds['train'])} sequences after filtering")
     
@@ -153,7 +153,7 @@ def generate_stability_labels_from_hf(ec_number, output_path, limit=None, min_le
     total_items = len(filtered_ds['train']) if limit is None else min(limit, len(filtered_ds['train']))
     
     # Process in batches
-    batch_size = 8  # Reduced batch size for stability due to memory constraints
+    batch_size = 32
     current_batch = []
     current_batch_indices = []
     
