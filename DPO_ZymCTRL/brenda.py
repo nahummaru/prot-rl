@@ -121,29 +121,26 @@ def generate_stability_labels_from_hf(ec_number, output_path, limit=None, min_le
     print(f"Sequence length range: {min_length}-{max_length}")
     
     ds = load_dataset("AI4PD/ZymCTRL")
+    filtered_ds = ds.filter(lambda x: x['text'].startswith(ec_number))
 
+    def extract_sequence(text):
+        try:
+            ec_number, sequence = text.split('<sep>')[:2]
+            sequence = sequence.split('<start>')[1].split('<end>')[0]
+            return sequence
+        except (IndexError, ValueError) as e:
+            print(f"Error extracting sequence from text: {e}")
+            return None
     
-    # filtered_ds = ds.filter(lambda x: x['text'].startswith(ec_number))
+    filtered_ds = filtered_ds.map(lambda x: {'text': extract_sequence(x['text'])})
 
-    # def extract_sequence(text):
-    #     try:
-    #         ec_number, sequence = text.split('<sep>')[:2]
-    #         sequence = sequence.split('<start>')[1].split('<end>')[0]
-    #         return sequence
-    #     except (IndexError, ValueError) as e:
-    #         print(f"Error extracting sequence from text: {e}")
-    #         return None
-    
-    # filtered_ds = filtered_ds.map(lambda x: {'text': extract_sequence(x['text'])})
+    # Remove entries where text is None
+    filtered_ds = filtered_ds.filter(lambda x: x['text'] is not None)
 
-<<<<<<< HEAD
-    # # Remove entries where text is None
-    # filtered_ds = filtered_ds.filter(lambda x: x['text'] is not None)
-=======
     filtered_ds = filtered_ds.filter(lambda x: len(x['text']) <= max_length)
     filtered_ds = filtered_ds.filter(lambda x: len(x['text']) >= min_length)
     filtered_ds = filtered_ds.map(lambda x: {'length': len(x['text'])})
-    filtered_ds = filtered_ds.sort('length', reverse=False)
+    filtered_ds = filtered_ds.sort('length', reverse=True)
     
     print(f"Found {len(filtered_ds['train'])} sequences after filtering")
     
@@ -152,84 +149,29 @@ def generate_stability_labels_from_hf(ec_number, output_path, limit=None, min_le
     # tokenizer = AutoTokenizer.from_pretrained(model_name)
     # model = GPT2LMHeadModel.from_pretrained(model_name).to('cuda' if torch.cuda.is_available() else 'cpu')
     # tokenizer.pad_token = tokenizer.eos_token
->>>>>>> 0d60056dd8b0bac1ee5b507c2cc91e0ca2156d63
 
-    # filtered_ds = filtered_ds.filter(lambda x: len(x['text']) <= max_length)
-    # filtered_ds = filtered_ds.filter(lambda x: len(x['text']) >= min_length)
-    # filtered_ds = filtered_ds.map(lambda x: {'length': len(x['text'])})
-    # filtered_ds = filtered_ds.sort('length', reverse=False)
+    total_items = len(filtered_ds['train']) if limit is None else min(limit, len(filtered_ds['train']))
     
-<<<<<<< HEAD
-    # # Load the model and tokenizer for perplexity calculation
-    # model_name = 'AI4PD/ZymCTRL'
-    # tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # model = GPT2LMHeadModel.from_pretrained(model_name).to('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # tokenizer.pad_token = tokenizer.eos_token
-
-    # total_items = len(filtered_ds['train']) if limit is None else min(limit, len(filtered_ds['train']))
-    
-    # # Process in batches
-    # batch_size = 16 # Adjust based on available GPU memory
-    # current_batch = []
-    # current_batch_indices = []
-    
-    # with open(output_path, 'w', newline='') as outfile:
-    #     writer = csv.writer(outfile)
-    #     writer.writerow(['EC_Number', 'Sequence', 'Raw_IF', 'DeltaG', 'Stability_Label', 'pLDDT', 'Length'])
-=======
     # Process in batches
-    batch_size = 8  # Reduced batch size for stability due to memory constraints
+    batch_size = 32
     current_batch = []
     current_batch_indices = []
     
     with open(output_path, 'w', newline='') as outfile:
         writer = csv.writer(outfile)
         writer.writerow(['EC_Number', 'Sequence', 'Raw_Score', 'DeltaG', 'Stability_Label', 'pLDDT', 'Length', 'Scoring_Method'])
->>>>>>> 0d60056dd8b0bac1ee5b507c2cc91e0ca2156d63
         
-    #     for i, item in tqdm(enumerate(filtered_ds['train']), total=total_items, desc="Processing sequences"):
-    #         if limit is not None and i >= limit:
-    #             break
+        for i, item in tqdm(enumerate(filtered_ds['train']), total=total_items, desc="Processing sequences"):
+            if limit is not None and i >= limit:
+                break
                 
-    #         try:
-    #             # Extract the sequence from the 'text' field
-    #             sequence = item['text']
+            try:
+                # Extract the sequence from the 'text' field
+                sequence = item['text']
                 
-    #             current_batch.append(sequence)
-    #             current_batch_indices.append((i, ec_number.strip()))
+                current_batch.append(sequence)
+                current_batch_indices.append((i, ec_number.strip()))
                 
-<<<<<<< HEAD
-    #             # Process batch when it's full or on the last item
-    #             if len(current_batch) == batch_size or i == total_items - 1:
-    #                 # Calculate stability and pLDDT for the batch
-    #                 stability_results = stability_score_batch(current_batch)
-                    
-    #                 # Calculate perplexity for the batch
-    #                 batch_input_ids = tokenizer(current_batch, padding=True, return_tensors='pt').to(model.device)
-    #                 # with torch.no_grad():
-    #                 #     outputs = model(batch_input_ids.input_ids)
-    #                 #     batch_ppls = batched_perplexity_from_logits(outputs.logits, batch_input_ids.input_ids, batch_input_ids.attention_mask)
-                    
-    #                 # Process results for each sequence in the batch
-    #                 for (idx, ec), seq, (raw_if, dg, plddt) in zip(current_batch_indices, current_batch, stability_results):
-    #                     if dg < -2.0:
-    #                         stability_label = "high"
-    #                     elif dg > 0.0:
-    #                         stability_label = "low"
-    #                     else:
-    #                         stability_label = "medium"
-                        
-    #                     writer.writerow([
-    #                         ec,
-    #                         seq,
-    #                         str(raw_if),
-    #                         str(dg),
-    #                         stability_label,
-    #                         str(plddt),
-    #                         str(len(seq))
-    #                     ])
-=======
                 # Process batch when it's full or on the last item
                 if len(current_batch) == batch_size or i == total_items - 1 or i == len(filtered_ds['train']) - 1:
                     print(f"Processing batch of {len(current_batch)} sequences...")
@@ -267,19 +209,18 @@ def generate_stability_labels_from_hf(ec_number, output_path, limit=None, min_le
                             str(len(seq)),
                             scoring_method
                         ])
->>>>>>> 0d60056dd8b0bac1ee5b507c2cc91e0ca2156d63
                     
-    #                 # Clear batch
-    #                 current_batch = []
-    #                 current_batch_indices = []
-    #                 torch.cuda.empty_cache()
+                    # Clear batch
+                    current_batch = []
+                    current_batch_indices = []
+                    torch.cuda.empty_cache()
             
-    #         except Exception as e:
-    #             print(f"Error processing entry {i}: {str(e)}")
-    #             print(f"Skipping entry {i}")
-    #             # Clear batch on error to prevent accumulation of problematic sequences
-    #             current_batch = []
-    #             current_batch_indices = []
+            except Exception as e:
+                print(f"Error processing entry {i}: {str(e)}")
+                print(f"Skipping entry {i}")
+                # Clear batch on error to prevent accumulation of problematic sequences
+                current_batch = []
+                current_batch_indices = []
     
     print(f"Processed {total_items} sequences and saved to {output_path}")
 
