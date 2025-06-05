@@ -9,8 +9,8 @@ import numpy as np
 from datasets import load_dataset
 from stability import stability_score_batch
 
-def mutate_sequence_blosum(sequence, mutation_rate=0.1):
-    """Apply BLOSUM62-based mutations to a sequence - mutates every position"""
+def mutate_sequence_blosum(sequence, mutation_rate=0.1, n_mutations=10):
+    """Apply BLOSUM62-based mutations to a sequence - mutates only n_mutations positions"""
     # BLOSUM62 matrix (simplified version for common amino acids)
     blosum62 = {
         'A': {'A': 4, 'R': -1, 'N': -2, 'D': -2, 'C': 0, 'Q': -1, 'E': -1, 'G': 0, 'H': -2, 'I': -1, 'L': -1, 'K': -1, 'M': -1, 'F': -2, 'P': -1, 'S': 1, 'T': 0, 'W': -3, 'Y': -2, 'V': 0},
@@ -37,8 +37,14 @@ def mutate_sequence_blosum(sequence, mutation_rate=0.1):
     
     mutated_seq = list(sequence)
     
-    # Go through each position and mutate it using BLOSUM probabilities
-    for pos in range(len(sequence)):
+    # Limit the number of mutations to apply
+    actual_n_mutations = min(n_mutations, len(sequence))
+    
+    # Randomly select positions to mutate
+    positions_to_mutate = np.random.choice(len(sequence), actual_n_mutations, replace=False)
+    
+    # Mutate only the selected positions using BLOSUM probabilities
+    for pos in positions_to_mutate:
         original_aa = sequence[pos]
         if original_aa in blosum62:
             # Get BLOSUM scores for this amino acid
@@ -127,7 +133,7 @@ def count_sequence_differences(seq1, seq2):
         return None  # Can't compare sequences of different lengths
     return sum(1 for a, b in zip(seq1, seq2) if a != b)
 
-def generate_mutations_for_brenda(sequences, n_mutations_per_seq=5, mutation_rates=None, score_mutations=True, scoring_method="rosetta", batch_size=8):
+def generate_mutations_for_brenda(sequences, n_mutations_per_seq=1, mutation_rates=None, score_mutations=True, scoring_method="rosetta", batch_size=8, n_mutations_per_position=10):
     """Generate BLOSUM mutations for each BRENDA sequence using batched processing"""
     if mutation_rates is None:
         mutation_rates = [1]  # Different mutation rates
@@ -135,6 +141,7 @@ def generate_mutations_for_brenda(sequences, n_mutations_per_seq=5, mutation_rat
     all_data = []
     
     print(f"Generating {n_mutations_per_seq} mutations per sequence using {len(mutation_rates)} different mutation rates")
+    print(f"Each mutation will affect {n_mutations_per_position} amino acids")
     print(f"Processing in batches of {batch_size} sequences")
     
     # Process sequences in batches
@@ -192,7 +199,7 @@ def generate_mutations_for_brenda(sequences, n_mutations_per_seq=5, mutation_rat
             # Generate mutations for this sequence
             for i in range(n_mutations_per_seq):
                 mutation_rate = mutation_rates[i % len(mutation_rates)]
-                mutated_seq = mutate_sequence_blosum(original_seq, mutation_rate)
+                mutated_seq = mutate_sequence_blosum(original_seq, mutation_rate, n_mutations_per_position)
                 
                 all_mutations_batch.append(mutated_seq)
                 mutation_tracking.append((seq_idx, i, original_seq, ec_number))
@@ -347,7 +354,7 @@ if __name__ == "__main__":
     parser.add_argument("--limit", type=int, default=None, help="Limit the number of sequences to process")
     parser.add_argument("--input_csv", type=str, default=None, help="Path to existing BRENDA CSV file (if not provided, will load from HuggingFace)")
     parser.add_argument("--output_path", type=str, required=True, help="Path to the output CSV file")
-    parser.add_argument("--n_mutations", type=int, default=5, help="Number of mutations to generate per sequence")
+    parser.add_argument("--n_mutations", type=int, default=1, help="Number of mutations to generate per sequence")
     parser.add_argument("--mutation_rates", type=float, nargs='+', default=[0.05, 0.1, 0.15, 0.2, 0.25], 
                       help="List of mutation rates to use")
     parser.add_argument("--no_scoring", action="store_true", help="Skip stability scoring (faster)")
@@ -355,6 +362,7 @@ if __name__ == "__main__":
                       help="Scoring method for stability evaluation: 'rosetta' (default) or 'esm-if'")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--batch_size", type=int, default=8, help="Batch size for processing sequences (affects memory usage)")
+    parser.add_argument("--n_mutations_per_position", type=int, default=10, help="Number of amino acids to mutate within each sequence (default: 10)")
     
     args = parser.parse_args()
     
@@ -367,6 +375,7 @@ if __name__ == "__main__":
     print(f"- EC number: {args.ec_number}")
     print(f"- Length range: {args.min_length}-{args.max_length}")
     print(f"- Mutations per sequence: {args.n_mutations}")
+    print(f"- Mutations per position: {args.n_mutations_per_position}")
     print(f"- Mutation rates: {args.mutation_rates}")
     print(f"- Scoring: {'Disabled' if args.no_scoring else args.scoring_method.upper()}")
     print(f"- Random seed: {args.seed}")
@@ -384,8 +393,7 @@ if __name__ == "__main__":
             max_length=args.max_length, 
             limit=args.limit
         )
-    
-    print(f"Loaded {len(sequences)} sequences")
+
     
     # Generate mutations
     df = generate_mutations_for_brenda(
@@ -394,7 +402,8 @@ if __name__ == "__main__":
         mutation_rates=args.mutation_rates,
         score_mutations=not args.no_scoring,
         scoring_method=args.scoring_method,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        n_mutations_per_position=args.n_mutations_per_position
     )
     
     # Save results
