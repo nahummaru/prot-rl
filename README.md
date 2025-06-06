@@ -20,6 +20,7 @@ This repository accompanies the paper **"Learning New Biophysical Controls in Pr
 git clone https://github.com/nahummaru/prot-rl.git
 cd prot-rl
 pip install -r requirements.txt
+```
 
 ## Training and Evaluation
 
